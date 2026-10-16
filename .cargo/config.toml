@@ -1,0 +1,10 @@
+# The conformance suite shares one nats-server; `easybus.discover` is a GLOBAL
+# control-plane subject (no tenant), so two extensions running at once would
+# both answer each other's discovery broadcast. Run tests serially, exactly as
+# the TS suite does (vitest runs a file's cases in order).
+[env]
+EASYBUS_TEST_THREADS = "1"
+
+[alias]
+# `cargo t` -> the full suite, serial.
+t = "test -- --test-threads=1"

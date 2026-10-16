@@ -1,0 +1,42 @@
+[package]
+name = "easybus-sdk"
+version = "0.1.0"
+edition = "2021"
+description = "easybus protocol SDK (Rust) — the multi-tenant extension bus. Wire contract: proto/easybus/v1/protocol.proto (the single source of truth, shared with easybus-sdk Go/TypeScript/Python)."
+license = "MIT"
+
+[dependencies]
+prost = "0.13"
+prost-types = "0.13"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+async-nats = "0.38"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+bytes = "1"
+uuid = { version = "1", features = ["v4"] }
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.22"
+thiserror = "2"
+tracing = "0.1"
+async-trait = "0.1"
+futures = "0.3"
+
+[build-dependencies]
+prost-build = "0.13"
+protoc-bin-vendored = "3"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+
+[[example]]
+name = "smoke"
+path = "examples/smoke.rs"
+
+[[bin]]
+name = "rs-ext"
+path = "interop/rs-ext.rs"
+
+[[bin]]
+name = "rs-agent"
+path = "interop/rs-agent.rs"
