@@ -6,8 +6,8 @@
 use crate::bus::{Bus, InboxPublishOpts, PublishOpts, SubscribeOpts};
 use crate::gen::easybus::v1 as pb;
 use crate::protocol::{
-    new_id, session_var_key, subject_tenant, tenant_object_name, var_key, CONFIG_KV_BUCKET,
-    GLOBAL_TENANT, LIFECYCLE_WILDCARD, CH_DISCOVER, VARS_BUCKET,
+    ch_file_get, ch_file_ingest, new_id, session_var_key, subject_tenant, tenant_object_name, var_key,
+    CONFIG_KV_BUCKET, GLOBAL_TENANT, LIFECYCLE_WILDCARD, CH_DISCOVER, VARS_BUCKET,
 };
 use crate::wire::{
     code_to_wire, from_value, lifecycle_kind_string, to_value,
@@ -680,6 +680,79 @@ impl Extension {
     pub async fn get_object(&self, tenant: &str, name: &str) -> Option<Vec<u8>> {
         self.bus.object_get(&tenant_object_name(tenant, name)).await
     }
+
+    // ---- agent-served file RPCs (filerpc) ----------------------------------
+    //
+    // A DB-less, store-less extension cannot mint a canonical `file:<code>` on
+    // its own, so it asks the AGENT to persist the bytes + metadata via the
+    // SAME path as an in-process ingest. BYTES NEVER RIDE THE MESSAGE: the
+    // bytes are first put in the transient object store and only the object
+    // reference travels in the request.
+
+    /// Store bytes through the AGENT (a 1:1 `req` on
+    /// `easybus.<tenant>.file.ingest`) and return the canonical `file:<code>`
+    /// plus the content type the agent DERIVED from the bytes.
+    pub async fn ingest_file_via_agent(&self, tenant: &str, name: &str, data: Vec<u8>, session_name: &str) -> Result<(String, String), String> {
+        let object = format!("{}.ingest", new_id());
+        self.bus.object_put(&tenant_object_name(tenant, &object), data).await;
+        let mut req = json!({"name": name, "object": object});
+        if !session_name.is_empty() {
+            req["session_name"] = json!(session_name);
+        }
+        let reply = self
+            .bus
+            .request(
+                &ch_file_ingest(tenant),
+                req,
+                crate::bus::RequestOpts {
+                    timeout_ms: 60_000,
+                    tenant: tenant.to_string(),
+                    session_name: session_name.to_string(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .ok_or_else(|| "file ingest: no reply".to_string())?;
+        let res = from_value(reply.payload.as_ref().unwrap_or(&prost_types::Value { kind: None }));
+        if res.get("ok").and_then(|x| x.as_bool()) != Some(true) {
+            let msg = res
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("failed");
+            return Err(format!("file ingest: {msg}"));
+        }
+        Ok((
+            res.get("code").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            res.get("mime").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+        ))
+    }
+
+    /// Fetch a stored file's bytes + metadata through the agent (a 1:1 `req` on
+    /// `easybus.<tenant>.file.get`). Returns None when the file is absent.
+    pub async fn get_file_via_agent(&self, tenant: &str, code: &str) -> Option<(Value, Vec<u8>)> {
+        let reply = self
+            .bus
+            .request(
+                &ch_file_get(tenant),
+                json!({"code": code}),
+                crate::bus::RequestOpts {
+                    timeout_ms: 60_000,
+                    tenant: tenant.to_string(),
+                    ..Default::default()
+                },
+            )
+            .await?;
+        let res = from_value(reply.payload.as_ref().unwrap_or(&prost_types::Value { kind: None }));
+        if res.get("ok").and_then(|x| x.as_bool()) != Some(true) {
+            return None;
+        }
+        let meta = res.get("meta")?.clone();
+        let object = res.get("object").and_then(|x| x.as_str())?;
+        let data = self.bus.object_get(&tenant_object_name(tenant, object)).await?;
+        Some((meta, data))
+    }
+
     pub async fn set_variable(&self, tenant: &str, name: &str, value: &str) {
         self.bus.kv_put(VARS_BUCKET, &var_key(tenant, &self.cfg.id, name), value, 0).await;
     }

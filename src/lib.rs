@@ -22,3 +22,4 @@ pub mod bus;
 pub mod transport;
 pub mod extension;
 pub mod agent;
+pub mod i18n;

@@ -115,6 +115,30 @@ pub fn session_var_key(tenant: &str, ext_id: &str, session_name: &str, name: &st
     tenant_kv_key(tenant, &format!("{ext_id}.{}.{name}", session_token(session_name)))
 }
 
+// ---- file RPCs (agent-served) ---------------------------------------------
+//
+// A DB-less, store-less extension (no S3 credentials, no agent DB) cannot mint
+// a canonical `file:<code>` on its own, so it asks the AGENT to persist the
+// bytes + metadata via the SAME path as an in-process ingest. The tenant rides
+// the subject (`easybus.<tenant>.file.ingest`) and the envelope, so no separate
+// credential is introduced. BYTES NEVER RIDE THE MESSAGE: the caller first
+// stores the bytes in the transient object store and sends only the reference.
+
+/// The cross-tenant consume wildcard for file.ingest.
+pub const FILE_INGEST_WILDCARD: &str = "easybus.*.file.ingest";
+/// The cross-tenant consume wildcard for file.get.
+pub const FILE_GET_WILDCARD: &str = "easybus.*.file.get";
+
+/// Route a file-ingest request for one tenant.
+pub fn ch_file_ingest(tenant: &str) -> String {
+    format!("{}file.ingest", tenant_prefix(tenant))
+}
+
+/// Route a file-get request for one tenant.
+pub fn ch_file_get(tenant: &str) -> String {
+    format!("{}file.get", tenant_prefix(tenant))
+}
+
 /// A fresh random UUID-v4-shaped id (matches Go's protocol.NewID).
 pub fn new_id() -> String {
     uuid::Uuid::new_v4().to_string()
