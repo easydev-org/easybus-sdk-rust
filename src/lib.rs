@@ -23,3 +23,4 @@ pub mod transport;
 pub mod extension;
 pub mod agent;
 pub mod i18n;
+pub mod manifest;
