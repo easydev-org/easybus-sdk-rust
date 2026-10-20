@@ -90,6 +90,9 @@ pub struct ToolSpec {
     pub descriptions: HashMap<String, String>,
     pub input_schema: Value,
     pub required_config: Vec<String>,
+    /// Grouping of this tool (pvc, build, storage, ...). Organisational only:
+    /// the tool keeps its name; it lets a client group the list.
+    pub namespace: String,
 }
 
 #[derive(Clone, Default)]
@@ -107,6 +110,39 @@ pub struct ConfigSpec {
     pub default: Option<Value>,
     pub description: String,
     pub scope: String,
+    /// Shape of a structured knob (type list/object). Empty = untyped json blob.
+    pub fields: Vec<FieldSpec>,
+    /// Element type when type == "list".
+    pub item_type: String,
+    pub min_items: i32,
+    pub max_items: i32,
+    /// Scopes this knob's stored value to one namespace of the extension.
+    /// Empty = extension-level (shared by all its namespaces).
+    pub namespace: String,
+}
+
+/// One key of a structured config value (or of one list item's keys).
+#[derive(Clone, Default)]
+pub struct FieldSpec {
+    pub name: String,
+    pub r#type: String,
+    pub kind: String,
+    pub format: String,
+    pub enum_values: Vec<String>,
+    pub default: Option<Value>,
+    pub required: bool,
+    pub description: String,
+    pub descriptions: HashMap<String, String>,
+    /// Nested shape for an object field (one level, like the manifest).
+    pub fields: Vec<FieldSpec>,
+}
+
+/// One declared grouping of an extension's tools and config.
+#[derive(Clone, Default)]
+pub struct NamespaceSpec {
+    pub name: String,
+    pub description: String,
+    pub descriptions: HashMap<String, String>,
 }
 
 /// The extension configuration + handlers.
@@ -118,6 +154,8 @@ pub struct Config {
     pub tools: HashMap<String, (ToolSpec, Arc<dyn ToolHandler>)>,
     pub variables: HashMap<String, VariableSpec>,
     pub config: HashMap<String, ConfigSpec>,
+    /// Declared groupings (pvc, build, storage, ...), in the author's ORDER.
+    pub namespaces: Vec<NamespaceSpec>,
     pub call_hooks: Vec<String>,
     pub event_hooks: Vec<String>,
     pub lifecycle: Vec<String>,
@@ -886,6 +924,9 @@ fn build_manifest(cfg: &Config) -> pb::ExtensionManifest {
             description: spec.description.clone(),
             descriptions: spec.descriptions.clone(),
             required_config: spec.required_config.clone(),
+            // Without this the manifest carries per-tool namespace tags that
+            // reference groups the client never receives.
+            namespace: if spec.namespace.is_empty() { None } else { Some(spec.namespace.clone()) },
             ..Default::default()
         });
     }
@@ -921,7 +962,29 @@ fn build_manifest(cfg: &Config) -> pb::ExtensionManifest {
         if let Some(d) = &spec.default {
             item.default = Some(to_value(d));
         }
+        // The SHAPE of a structured knob: without it a client can only render one
+        // JSON textarea, and the stored key loses its namespace.
+        item.fields = spec.fields.iter().map(to_field_schema).collect();
+        if !spec.item_type.is_empty() {
+            item.item_type = Some(spec.item_type.clone());
+        }
+        if spec.min_items != 0 {
+            item.min_items = Some(spec.min_items);
+        }
+        if spec.max_items != 0 {
+            item.max_items = Some(spec.max_items);
+        }
+        if !spec.namespace.is_empty() {
+            item.namespace = Some(spec.namespace.clone());
+        }
         m.config.push(item);
+    }
+    for ns in &cfg.namespaces {
+        m.namespaces.push(pb::ExtensionNamespace {
+            name: ns.name.clone(),
+            description: if ns.description.is_empty() { None } else { Some(ns.description.clone()) },
+            descriptions: ns.descriptions.clone(),
+        });
     }
     m.lifecycle = cfg.lifecycle.clone();
     if !cfg.call_hooks.is_empty() || !cfg.event_hooks.is_empty() {
@@ -962,4 +1025,23 @@ where
 /// Convenience: build a `Value` object from a `Map`.
 pub fn obj(m: Map<String, Value>) -> Value {
     Value::Object(m)
+}
+
+/// Map one declared field onto the wire schema (recursing one level).
+///
+/// `fields` nests because a field may itself be an object; both this client and
+/// the validator stop at that depth on purpose.
+fn to_field_schema(f: &crate::extension::FieldSpec) -> pb::ConfigFieldSchema {
+    pb::ConfigFieldSchema {
+        name: f.name.clone(),
+        r#type: f.r#type.clone(),
+        kind: if f.kind.is_empty() { None } else { Some(f.kind.clone()) },
+        format: if f.format.is_empty() { None } else { Some(f.format.clone()) },
+        enum_values: f.enum_values.clone(),
+        default: f.default.as_ref().map(to_value),
+        required: f.required,
+        description: if f.description.is_empty() { None } else { Some(f.description.clone()) },
+        descriptions: f.descriptions.clone(),
+        fields: f.fields.iter().map(to_field_schema).collect(),
+    }
 }

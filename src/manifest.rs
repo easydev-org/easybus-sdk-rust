@@ -24,6 +24,10 @@ pub struct ManifestTool {
     pub input_schema: Option<serde_json::Value>,
     #[serde(default)]
     pub required_config: Vec<String>,
+    /// Grouping of this tool (pvc, build, storage, ...). Organisational only:
+    /// the tool keeps its name; it lets a client group the list.
+    #[serde(default)]
+    pub namespace: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -56,6 +60,61 @@ pub struct ManifestConfig {
     pub descriptions: HashMap<String, String>,
     #[serde(default)]
     pub scope: String,
+    /// Shape of a structured knob (type list/object): the keys of the object, or
+    /// of each list item. Empty = untyped json blob (the fallback).
+    #[serde(default)]
+    pub fields: Vec<ManifestField>,
+    /// Element type when `type == "list"` (object | string | number | boolean).
+    #[serde(default)]
+    pub item_type: String,
+    #[serde(default)]
+    pub min_items: i32,
+    #[serde(default)]
+    pub max_items: i32,
+    /// Scopes this knob's STORED VALUE to one namespace of the extension.
+    /// Empty = extension-level (shared by all its namespaces).
+    #[serde(default)]
+    pub namespace: String,
+}
+
+/// One key of a structured config value (or of one list item's keys).
+///
+/// It exists so a client can render a real form instead of a JSON textarea: an
+/// `enum` becomes a picker, `kind = "secret"` a masked input, `format = "uri"` a
+/// URL field, and a list of objects becomes repeatable cards with a "+".
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ManifestField {
+    pub name: String,
+    #[serde(default, rename = "type")]
+    pub r#type: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub format: String,
+    #[serde(default)]
+    pub enum_values: Vec<String>,
+    #[serde(default)]
+    pub default: Option<serde_json::Value>,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub descriptions: HashMap<String, String>,
+    /// Nested shape for an object field (one level: enough for every current
+    /// knob, and it keeps the renderer honest).
+    #[serde(default)]
+    pub fields: Vec<ManifestField>,
+}
+
+/// One declared grouping of an extension's tools and config.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ManifestNamespace {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub descriptions: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -81,6 +140,9 @@ pub struct Manifest {
     pub lifecycle: Vec<String>,
     #[serde(default)]
     pub hooks: Option<ManifestHooks>,
+    /// Declared groupings (pvc, build, storage, ...), in the author's ORDER.
+    #[serde(default)]
+    pub namespaces: Vec<ManifestNamespace>,
 }
 
 /// parse_manifest parses YAML manifest text and validates its config knobs.
@@ -95,10 +157,15 @@ pub fn parse_manifest(data: &str) -> Result<Manifest, String> {
         }
         // A secret knob is a credential: its value is never returned to a
         // client, and a `default` would ride the (broadcast) manifest — so a
-        // secret MUST be a string and MUST NOT declare a default.
-        if !c.r#type.is_empty() && c.r#type != "string" {
+        // secret MUST NOT declare a default.
+        //
+        // It MAY be structured (a list/object whose records each carry their own
+        // `kind: secret`), which is how a sandbox list declares a token per
+        // sandbox: withholding the whole knob is then a second guard on top of the
+        // per-field masking.
+        if !c.r#type.is_empty() && !matches!(c.r#type.as_str(), "string" | "list" | "object") {
             return Err(format!(
-                "manifest: config \"{}\": kind=secret requires type=string (got \"{}\")",
+                "manifest: config \"{}\": kind=secret requires type string, list or object (got \"{}\")",
                 c.name, c.r#type
             ));
         }
@@ -118,6 +185,28 @@ pub struct Bindings {
     pub variables: HashMap<String, VariableSpec>,
 }
 
+/// Map declared fields onto the wire-facing specs (recursing one level).
+///
+/// A field may itself be an object; both the client renderer and the validator
+/// stop at that depth on purpose.
+fn to_field_specs(fields: &[ManifestField]) -> Vec<crate::extension::FieldSpec> {
+    fields
+        .iter()
+        .map(|f| crate::extension::FieldSpec {
+            name: f.name.clone(),
+            r#type: f.r#type.clone(),
+            kind: f.kind.clone(),
+            format: f.format.clone(),
+            enum_values: f.enum_values.clone(),
+            default: f.default.clone(),
+            required: f.required,
+            description: f.description.clone(),
+            descriptions: f.descriptions.clone(),
+            fields: to_field_specs(&f.fields),
+        })
+        .collect()
+}
+
 /// build_config builds an extension.Config from the manifest + bindings.
 pub fn build_config(m: &Manifest, b: Bindings) -> Config {
     let mut tools: HashMap<String, (ToolSpec, std::sync::Arc<dyn crate::extension::ToolHandler>)> = HashMap::new();
@@ -131,6 +220,7 @@ pub fn build_config(m: &Manifest, b: Bindings) -> Config {
                         descriptions: t.descriptions.clone(),
                         input_schema: t.input_schema.clone().unwrap_or(serde_json::json!({})),
                         required_config: t.required_config.clone(),
+                        namespace: t.namespace.clone(),
                     },
                     h.clone(),
                 ),
@@ -159,9 +249,23 @@ pub fn build_config(m: &Manifest, b: Bindings) -> Config {
                 default: c.default.clone(),
                 description: c.description.clone(),
                 scope: if c.scope.is_empty() { "global".into() } else { c.scope.clone() },
+                fields: to_field_specs(&c.fields),
+                item_type: c.item_type.clone(),
+                min_items: c.min_items,
+                max_items: c.max_items,
+                namespace: c.namespace.clone(),
             },
         );
     }
+    let namespaces = m
+        .namespaces
+        .iter()
+        .map(|n| crate::extension::NamespaceSpec {
+            name: n.name.clone(),
+            description: n.description.clone(),
+            descriptions: n.descriptions.clone(),
+        })
+        .collect();
     let (call_hooks, event_hooks) = match &m.hooks {
         Some(h) => (h.call.clone(), h.event.clone()),
         None => (vec![], vec![]),
@@ -171,6 +275,7 @@ pub fn build_config(m: &Manifest, b: Bindings) -> Config {
         version: m.version.clone(),
         tools,
         variables,
+        namespaces,
         config,
         call_hooks,
         event_hooks,
@@ -190,7 +295,14 @@ mod tests {
 
         let bad_type = "id: x\nversion: \"1\"\nconfig:\n  - name: gh-token\n    type: number\n    kind: secret\n";
         let e = parse_manifest(bad_type).unwrap_err();
-        assert!(e.contains("type=string"), "{e}");
+        assert!(e.contains("requires type"), "{e}");
+
+        // A STRUCTURED secret is allowed: a sandbox list holds a token per
+        // sandbox, so the knob is a list/object while each record's token field
+        // carries the masking. Rejecting it made the typed form impossible for
+        // exactly the knob that needs it most.
+        let structured = "id: x\nversion: \"1\"\nconfig:\n  - name: sandboxes\n    type: list\n    kind: secret\n    item_type: object\n";
+        assert!(parse_manifest(structured).is_ok(), "structured secret must be accepted");
 
         let bad_default = "id: x\nversion: \"1\"\nconfig:\n  - name: gh-token\n    type: string\n    kind: secret\n    default: ghp_leaked\n";
         let e = parse_manifest(bad_default).unwrap_err();
