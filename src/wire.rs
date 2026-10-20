@@ -37,10 +37,17 @@ pub fn from_value(v: &prost_types::Value) -> Value {
     match &v.kind {
         None | Some(Kind::NullValue(_)) => Value::Null,
         Some(Kind::BoolValue(b)) => Value::Bool(*b),
-        Some(Kind::NumberValue(n)) => serde_json::Number::from_f64(*n).map(Value::Number).unwrap_or(Value::Null),
+        Some(Kind::NumberValue(n)) => serde_json::Number::from_f64(*n)
+            .map(Value::Number)
+            .unwrap_or(Value::Null),
         Some(Kind::StringValue(s)) => Value::String(s.clone()),
         Some(Kind::ListValue(l)) => Value::Array(l.values.iter().map(from_value).collect()),
-        Some(Kind::StructValue(s)) => Value::Object(s.fields.iter().map(|(k, v)| (k.clone(), from_value(v))).collect()),
+        Some(Kind::StructValue(s)) => Value::Object(
+            s.fields
+                .iter()
+                .map(|(k, v)| (k.clone(), from_value(v)))
+                .collect(),
+        ),
     }
 }
 
@@ -155,13 +162,31 @@ pub fn decode_envelope(data: &[u8]) -> Result<pb::Envelope, serde_json::Error> {
     let mut env = pb::Envelope::default();
     if let Some(o) = v.as_object() {
         env.v = o.get("v").and_then(|x| x.as_i64()).map(|x| x as i32);
-        env.ch = o.get("ch").and_then(|x| x.as_str()).unwrap_or("").to_string();
-        env.tenant = o.get("tenant").and_then(|x| x.as_str()).unwrap_or("").to_string();
-        env.kind = o.get("kind").and_then(|x| x.as_str()).map(kind_from_string).unwrap_or(pb::envelope::Kind::Pub as i32);
+        env.ch = o
+            .get("ch")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        env.tenant = o
+            .get("tenant")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        env.kind = o
+            .get("kind")
+            .and_then(|x| x.as_str())
+            .map(kind_from_string)
+            .unwrap_or(pb::envelope::Kind::Pub as i32);
         env.payload = o.get("payload").map(to_value);
         env.id = o.get("id").and_then(|x| x.as_str()).map(|s| s.to_string());
-        env.reply_to = o.get("reply_to").and_then(|x| x.as_str()).map(|s| s.to_string());
-        env.session_name = o.get("session_name").and_then(|x| x.as_str()).map(|s| s.to_string());
+        env.reply_to = o
+            .get("reply_to")
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string());
+        env.session_name = o
+            .get("session_name")
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string());
         env.pending = o.get("pending").and_then(|x| x.as_i64()).map(|x| x as i32);
     }
     Ok(env)
@@ -187,7 +212,10 @@ pub fn encode_tool_result(tr: &pb::ToolResult) -> Vec<u8> {
         m.insert("metadata".into(), from_value(md));
     }
     if let Some(e) = &tr.error {
-        m.insert("error".into(), json!({"code": e.code, "message": e.message}));
+        m.insert(
+            "error".into(),
+            json!({"code": e.code, "message": e.message}),
+        );
     }
     if let Some(o) = &tr.object {
         let mut om = Map::new();
@@ -205,21 +233,43 @@ pub fn decode_tool_result(data: &[u8]) -> Result<pb::ToolResult, serde_json::Err
     let v: Value = serde_json::from_slice(data)?;
     let mut tr = pb::ToolResult::default();
     if let Some(o) = v.as_object() {
-        tr.call_id = o.get("call_id").and_then(|x| x.as_str()).unwrap_or("").to_string();
-        tr.tool = o.get("tool").and_then(|x| x.as_str()).unwrap_or("").to_string();
-        tr.content = o.get("content").and_then(|x| x.as_str()).map(|s| s.to_string());
+        tr.call_id = o
+            .get("call_id")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        tr.tool = o
+            .get("tool")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        tr.content = o
+            .get("content")
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string());
         tr.data = o.get("data").map(to_value);
         tr.metadata = o.get("metadata").map(to_value);
         if let Some(e) = o.get("error").and_then(|x| x.as_object()) {
             tr.error = Some(pb::ToolError {
                 code: e.get("code").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
-                message: e.get("message").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                message: e
+                    .get("message")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
             });
         }
         if let Some(ob) = o.get("object").and_then(|x| x.as_object()) {
             tr.object = Some(pb::ObjectRef {
-                id: ob.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                content_type: ob.get("content_type").and_then(|x| x.as_str()).map(|s| s.to_string()),
+                id: ob
+                    .get("id")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                content_type: ob
+                    .get("content_type")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string()),
             });
         }
     }
@@ -293,16 +343,32 @@ pub fn decode_manifest(data: &[u8]) -> Result<pb::ExtensionManifest, serde_json:
     let v: Value = serde_json::from_slice(data)?;
     let mut m = pb::ExtensionManifest::default();
     let Some(o) = v.as_object() else { return Ok(m) };
-    m.id = o.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    m.version = o.get("version").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    m.id = o
+        .get("id")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    m.version = o
+        .get("version")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
     m.capabilities = str_vec(o.get("capabilities"));
     m.features = str_vec(o.get("features"));
     m.lifecycle = str_vec(o.get("lifecycle"));
     if let Some(ts) = o.get("tools").and_then(|x| x.as_array()) {
         for t in ts {
             m.tools.push(pb::ExtensionTool {
-                name: t.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                description: t.get("description").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                name: t
+                    .get("name")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                description: t
+                    .get("description")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 input_schema: t.get("input_schema").and_then(json_to_struct),
                 required_config: str_vec(t.get("required_config")),
                 ..Default::default()
@@ -312,13 +378,34 @@ pub fn decode_manifest(data: &[u8]) -> Result<pb::ExtensionManifest, serde_json:
     if let Some(cs) = o.get("config").and_then(|x| x.as_array()) {
         for c in cs {
             m.config.push(pb::ExtensionConfigItem {
-                name: c.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                r#type: c.get("type").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                kind: c.get("kind").and_then(|x| x.as_str()).map(|s| s.to_string()),
-                capability: c.get("capability").and_then(|x| x.as_str()).map(|s| s.to_string()),
+                name: c
+                    .get("name")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                r#type: c
+                    .get("type")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                kind: c
+                    .get("kind")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string()),
+                capability: c
+                    .get("capability")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string()),
                 enum_values: str_vec(c.get("enum_values")),
-                description: c.get("description").and_then(|x| x.as_str()).map(|s| s.to_string()),
-                scope: c.get("scope").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                description: c
+                    .get("description")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string()),
+                scope: c
+                    .get("scope")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 default: c.get("default").map(to_value),
                 ..Default::default()
             });
@@ -336,7 +423,12 @@ pub fn decode_manifest(data: &[u8]) -> Result<pb::ExtensionManifest, serde_json:
 
 fn struct_to_json(s: &Option<prost_types::Struct>) -> Value {
     match s {
-        Some(st) => Value::Object(st.fields.iter().map(|(k, v)| (k.clone(), from_value(v))).collect()),
+        Some(st) => Value::Object(
+            st.fields
+                .iter()
+                .map(|(k, v)| (k.clone(), from_value(v)))
+                .collect(),
+        ),
         None => Value::Object(Map::new()),
     }
 }
@@ -344,7 +436,10 @@ fn struct_to_json(s: &Option<prost_types::Struct>) -> Value {
 fn json_to_struct(v: &Value) -> Option<prost_types::Struct> {
     match v {
         Value::Object(o) => Some(prost_types::Struct {
-            fields: o.iter().map(|(k, val)| (k.clone(), to_value(val))).collect(),
+            fields: o
+                .iter()
+                .map(|(k, val)| (k.clone(), to_value(val)))
+                .collect(),
         }),
         _ => None,
     }
@@ -352,7 +447,11 @@ fn json_to_struct(v: &Value) -> Option<prost_types::Struct> {
 
 fn str_vec(v: Option<&Value>) -> Vec<String> {
     v.and_then(|x| x.as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default()
 }
 

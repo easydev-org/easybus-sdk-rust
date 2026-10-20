@@ -15,12 +15,12 @@ pub mod gen {
     }
 }
 
-pub mod protocol;
-pub mod wire;
-pub mod identity;
-pub mod bus;
-pub mod transport;
-pub mod extension;
 pub mod agent;
+pub mod bus;
+pub mod extension;
 pub mod i18n;
+pub mod identity;
 pub mod manifest;
+pub mod protocol;
+pub mod transport;
+pub mod wire;

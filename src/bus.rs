@@ -76,8 +76,18 @@ pub trait InboxSubscription: Send + Sync {
 /// The transport-agnostic message bus.
 #[async_trait]
 pub trait Bus: Send + Sync {
-    async fn request(&self, ch: &str, payload: serde_json::Value, opts: RequestOpts) -> Option<pb::Envelope>;
-    async fn request_many(&self, ch: &str, payload: serde_json::Value, opts: RequestOpts) -> Vec<pb::Envelope>;
+    async fn request(
+        &self,
+        ch: &str,
+        payload: serde_json::Value,
+        opts: RequestOpts,
+    ) -> Option<pb::Envelope>;
+    async fn request_many(
+        &self,
+        ch: &str,
+        payload: serde_json::Value,
+        opts: RequestOpts,
+    ) -> Vec<pb::Envelope>;
     async fn publish(&self, ch: &str, payload: serde_json::Value, opts: PublishOpts);
     async fn subscribe(&self, ch: &str, opts: SubscribeOpts) -> Box<dyn Subscription>;
 
@@ -92,7 +102,11 @@ pub trait Bus: Send + Sync {
     async fn object_put_persistent(&self, name: &str, data: Vec<u8>);
     async fn object_get_persistent(&self, name: &str) -> Option<Vec<u8>>;
 
-    async fn kv_watch(&self, bucket: &str, keys: &str) -> (mpsc::Receiver<KvEvent>, Box<dyn Fn() + Send + Sync>);
+    async fn kv_watch(
+        &self,
+        bucket: &str,
+        keys: &str,
+    ) -> (mpsc::Receiver<KvEvent>, Box<dyn Fn() + Send + Sync>);
     async fn kv_create(&self, bucket: &str, key: &str, value: &str, ttl_ms: u64) -> i64;
     async fn kv_put(&self, bucket: &str, key: &str, value: &str, ttl_ms: u64);
     async fn kv_get(&self, bucket: &str, key: &str) -> String;

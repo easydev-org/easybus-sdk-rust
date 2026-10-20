@@ -70,7 +70,11 @@ fn tool_namespace_reaches_the_spec() {
     let cfg = build_config(&m, Bindings::default());
     // No handler is bound, so the tool is not registered; assert on the manifest
     // layer instead (the namespace still has to survive parsing).
-    let tool = m.tools.iter().find(|t| t.name == "create-pvc").expect("tool");
+    let tool = m
+        .tools
+        .iter()
+        .find(|t| t.name == "create-pvc")
+        .expect("tool");
     assert_eq!(tool.namespace, "storage");
     let _ = cfg; // build_config ran without panicking
 }

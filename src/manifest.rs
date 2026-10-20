@@ -171,7 +171,10 @@ pub fn parse_manifest(data: &str) -> Result<Manifest, String> {
         }
         if let Some(d) = &c.default {
             if !d.is_null() && d.as_str() != Some("") {
-                return Err(format!("manifest: config \"{}\": kind=secret must not declare a default", c.name));
+                return Err(format!(
+                    "manifest: config \"{}\": kind=secret must not declare a default",
+                    c.name
+                ));
             }
         }
     }
@@ -209,7 +212,8 @@ fn to_field_specs(fields: &[ManifestField]) -> Vec<crate::extension::FieldSpec> 
 
 /// build_config builds an extension.Config from the manifest + bindings.
 pub fn build_config(m: &Manifest, b: Bindings) -> Config {
-    let mut tools: HashMap<String, (ToolSpec, std::sync::Arc<dyn crate::extension::ToolHandler>)> = HashMap::new();
+    let mut tools: HashMap<String, (ToolSpec, std::sync::Arc<dyn crate::extension::ToolHandler>)> =
+        HashMap::new();
     for t in &m.tools {
         if let Some(h) = b.handlers.get(&t.name) {
             tools.insert(
@@ -233,7 +237,11 @@ pub fn build_config(m: &Manifest, b: Bindings) -> Config {
             v.name.clone(),
             VariableSpec {
                 description: v.description.clone(),
-                scope: if v.scope.is_empty() { "global".into() } else { v.scope.clone() },
+                scope: if v.scope.is_empty() {
+                    "global".into()
+                } else {
+                    v.scope.clone()
+                },
             },
         );
     }
@@ -242,13 +250,25 @@ pub fn build_config(m: &Manifest, b: Bindings) -> Config {
         config.insert(
             c.name.clone(),
             ConfigSpec {
-                r#type: if c.r#type.is_empty() { "string".into() } else { c.r#type.clone() },
-                kind: if c.kind.is_empty() { "value".into() } else { c.kind.clone() },
+                r#type: if c.r#type.is_empty() {
+                    "string".into()
+                } else {
+                    c.r#type.clone()
+                },
+                kind: if c.kind.is_empty() {
+                    "value".into()
+                } else {
+                    c.kind.clone()
+                },
                 capability: c.capability.clone(),
                 enum_values: c.enum_values.clone(),
                 default: c.default.clone(),
                 description: c.description.clone(),
-                scope: if c.scope.is_empty() { "global".into() } else { c.scope.clone() },
+                scope: if c.scope.is_empty() {
+                    "global".into()
+                } else {
+                    c.scope.clone()
+                },
                 fields: to_field_specs(&c.fields),
                 item_type: c.item_type.clone(),
                 min_items: c.min_items,
@@ -302,13 +322,17 @@ mod tests {
         // carries the masking. Rejecting it made the typed form impossible for
         // exactly the knob that needs it most.
         let structured = "id: x\nversion: \"1\"\nconfig:\n  - name: sandboxes\n    type: list\n    kind: secret\n    item_type: object\n";
-        assert!(parse_manifest(structured).is_ok(), "structured secret must be accepted");
+        assert!(
+            parse_manifest(structured).is_ok(),
+            "structured secret must be accepted"
+        );
 
         let bad_default = "id: x\nversion: \"1\"\nconfig:\n  - name: gh-token\n    type: string\n    kind: secret\n    default: ghp_leaked\n";
         let e = parse_manifest(bad_default).unwrap_err();
         assert!(e.contains("must not declare a default"), "{e}");
 
-        let plain = "id: x\nversion: \"1\"\nconfig:\n  - name: region\n    type: string\n    default: us\n";
+        let plain =
+            "id: x\nversion: \"1\"\nconfig:\n  - name: region\n    type: string\n    default: us\n";
         assert!(parse_manifest(plain).is_ok());
     }
 }

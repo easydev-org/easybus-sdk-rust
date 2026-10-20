@@ -28,7 +28,9 @@ pub const GLOBAL_TENANT: &str = "global";
 pub fn is_valid_tenant(raw: &str) -> bool {
     !raw.is_empty()
         && raw.len() <= 64
-        && raw.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        && raw
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 /// The data-plane subject prefix for a tenant: `easybus.<tenant>.`
@@ -82,10 +84,18 @@ pub fn ch_variable(tenant: &str, ext_id: &str, name: &str) -> String {
     format!("{}var.{ext_id}.{name}", tenant_prefix(tenant))
 }
 pub fn ch_mailbox(tenant: &str, session: &str) -> String {
-    format!("{}mailbox.{}", tenant_prefix(tenant), session_token(session))
+    format!(
+        "{}mailbox.{}",
+        tenant_prefix(tenant),
+        session_token(session)
+    )
 }
 pub fn ch_session_events(tenant: &str, session: &str) -> String {
-    format!("{}session.events.{}", tenant_prefix(tenant), session_token(session))
+    format!(
+        "{}session.events.{}",
+        tenant_prefix(tenant),
+        session_token(session)
+    )
 }
 pub fn ch_session_changed(tenant: &str) -> String {
     format!("{}session.changed", tenant_prefix(tenant))
@@ -112,7 +122,10 @@ pub fn var_key(tenant: &str, ext_id: &str, name: &str) -> String {
     tenant_kv_key(tenant, &format!("{ext_id}.{name}"))
 }
 pub fn session_var_key(tenant: &str, ext_id: &str, session_name: &str, name: &str) -> String {
-    tenant_kv_key(tenant, &format!("{ext_id}.{}.{name}", session_token(session_name)))
+    tenant_kv_key(
+        tenant,
+        &format!("{ext_id}.{}.{name}", session_token(session_name)),
+    )
 }
 
 // ---- file RPCs (agent-served) ---------------------------------------------
@@ -209,24 +222,68 @@ pub mod golden {
     pub fn vectors() -> Vec<(&'static str, String, &'static str)> {
         let t = GOLDEN_TENANT;
         vec![
-            ("session_token", session_token("sess-1"), "q-Yz86R6J1gXTqvpFg2vNs"),
+            (
+                "session_token",
+                session_token("sess-1"),
+                "q-Yz86R6J1gXTqvpFg2vNs",
+            ),
             ("discover", CH_DISCOVER.to_string(), "easybus.discover"),
-            ("tool_call", ch_tool_call(t, "ops", "echo"), "easybus.alice.tool.call.ops.echo"),
-            ("tool_progress", ch_tool_progress(t, "c1"), "easybus.alice.tool.progress.c1"),
-            ("variable", ch_variable(t, "ops", "base-url"), "easybus.alice.var.ops.base-url"),
-            ("interrupt", ch_interrupt(t, "ops"), "easybus.alice.ctl.interrupt.ops"),
+            (
+                "tool_call",
+                ch_tool_call(t, "ops", "echo"),
+                "easybus.alice.tool.call.ops.echo",
+            ),
+            (
+                "tool_progress",
+                ch_tool_progress(t, "c1"),
+                "easybus.alice.tool.progress.c1",
+            ),
+            (
+                "variable",
+                ch_variable(t, "ops", "base-url"),
+                "easybus.alice.var.ops.base-url",
+            ),
+            (
+                "interrupt",
+                ch_interrupt(t, "ops"),
+                "easybus.alice.ctl.interrupt.ops",
+            ),
             (
                 "hook_call",
                 ch_hook_call(t, "ops", "session.before_create"),
                 "easybus.alice.hook.call.ops.session.before_create",
             ),
-            ("hook_event", ch_hook_event(t, "session.created"), "easybus.alice.hook.event.session.created"),
-            ("mailbox_wildcard", format!("{MAILBOX_WILDCARD_ALL}>"), "easybus.*.mailbox.>"),
-            ("mailbox_sess1", ch_mailbox(t, "sess-1"), "easybus.alice.mailbox.q-Yz86R6J1gXTqvpFg2vNs"),
-            ("session_events_s1", ch_session_events(t, "sess-1"), "easybus.alice.session.events.q-Yz86R6J1gXTqvpFg2vNs"),
+            (
+                "hook_event",
+                ch_hook_event(t, "session.created"),
+                "easybus.alice.hook.event.session.created",
+            ),
+            (
+                "mailbox_wildcard",
+                format!("{MAILBOX_WILDCARD_ALL}>"),
+                "easybus.*.mailbox.>",
+            ),
+            (
+                "mailbox_sess1",
+                ch_mailbox(t, "sess-1"),
+                "easybus.alice.mailbox.q-Yz86R6J1gXTqvpFg2vNs",
+            ),
+            (
+                "session_events_s1",
+                ch_session_events(t, "sess-1"),
+                "easybus.alice.session.events.q-Yz86R6J1gXTqvpFg2vNs",
+            ),
             ("config", ch_config(t, "ops"), "easybus.alice.config.ops"),
-            ("var_key", var_key(t, "ops", "base-url"), "t.alice.ops.base-url"),
-            ("session_var_key", session_var_key(t, "ops", "sess-1", "ws"), "t.alice.ops.q-Yz86R6J1gXTqvpFg2vNs.ws"),
+            (
+                "var_key",
+                var_key(t, "ops", "base-url"),
+                "t.alice.ops.base-url",
+            ),
+            (
+                "session_var_key",
+                session_var_key(t, "ops", "sess-1", "ws"),
+                "t.alice.ops.q-Yz86R6J1gXTqvpFg2vNs.ws",
+            ),
         ]
     }
 }

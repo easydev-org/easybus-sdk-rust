@@ -36,9 +36,7 @@ pub fn base_lang(locale: &str) -> String {
 }
 
 fn is_ident(s: &str) -> bool {
-    !s.is_empty()
-        && s.bytes()
-            .all(|c| c == b'_' || c.is_ascii_alphanumeric())
+    !s.is_empty() && s.bytes().all(|c| c == b'_' || c.is_ascii_alphanumeric())
 }
 
 /// interpolate replaces `{name}` placeholders; an unknown name is left literal.
@@ -92,12 +90,27 @@ pub fn interpolate(template: &str, params: Option<&Params>) -> String {
 /// translate resolves one message. `locale` may be a full tag; matching walks
 /// exact -> base(locale) -> fallback -> base(fallback) -> first-available ->
 /// the key itself.
-pub fn translate(c: &Catalog, key: &str, locale: &str, params: Option<&Params>, fallback: &str) -> String {
+pub fn translate(
+    c: &Catalog,
+    key: &str,
+    locale: &str,
+    params: Option<&Params>,
+    fallback: &str,
+) -> String {
     let Some(entry) = c.get(key) else {
         return key.to_string();
     };
-    let fb = if fallback.is_empty() { BASE_LOCALE } else { fallback };
-    for cand in [locale.to_string(), base_lang(locale), fb.to_string(), base_lang(fb)] {
+    let fb = if fallback.is_empty() {
+        BASE_LOCALE
+    } else {
+        fallback
+    };
+    for cand in [
+        locale.to_string(),
+        base_lang(locale),
+        fb.to_string(),
+        base_lang(fb),
+    ] {
         if let Some(tpl) = entry.get(&cand) {
             return interpolate(tpl, params);
         }
@@ -190,11 +203,26 @@ mod tests {
     #[test]
     fn translate_cases() {
         let c = cat();
-        assert_eq!(translate(&c, "hello", "zh", Some(&params("X")), ""), "你好 X");
-        assert_eq!(translate(&c, "hello", "zh-CN", Some(&params("X")), ""), "你好 X");
-        assert_eq!(translate(&c, "hello", "ja-JP", Some(&params("X")), ""), "こんにちは X");
-        assert_eq!(translate(&c, "hello", "de", Some(&params("X")), ""), "Hello X");
-        assert_eq!(translate(&c, "hello", "", Some(&params("X")), ""), "Hello X");
+        assert_eq!(
+            translate(&c, "hello", "zh", Some(&params("X")), ""),
+            "你好 X"
+        );
+        assert_eq!(
+            translate(&c, "hello", "zh-CN", Some(&params("X")), ""),
+            "你好 X"
+        );
+        assert_eq!(
+            translate(&c, "hello", "ja-JP", Some(&params("X")), ""),
+            "こんにちは X"
+        );
+        assert_eq!(
+            translate(&c, "hello", "de", Some(&params("X")), ""),
+            "Hello X"
+        );
+        assert_eq!(
+            translate(&c, "hello", "", Some(&params("X")), ""),
+            "Hello X"
+        );
         assert_eq!(translate(&c, "missing", "zh", None, ""), "missing");
     }
 

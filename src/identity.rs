@@ -36,7 +36,10 @@ fn canonical(identity_id: &str, f: &Fields) -> String {
         .as_ref()
         .map(|p| serde_json::to_string(p).unwrap_or_default())
         .unwrap_or_default();
-    format!("{}\n{}\n{}\n{}\n{}\n{}", identity_id, f.tenant, f.ch, f.kind, f.id, payload)
+    format!(
+        "{}\n{}\n{}\n{}\n{}\n{}",
+        identity_id, f.tenant, f.ch, f.kind, f.id, payload
+    )
 }
 
 fn sign(identity: &Identity, f: &Fields) -> String {
@@ -66,7 +69,10 @@ pub fn verify(claimed_id: &str, secret: &str, f: &Fields, provided: &str) -> boo
     if want.len() != provided.len() {
         return false;
     }
-    want.bytes().zip(provided.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
+    want.bytes()
+        .zip(provided.bytes())
+        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+        == 0
 }
 
 #[cfg(test)]

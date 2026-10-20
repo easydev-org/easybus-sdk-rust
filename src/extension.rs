@@ -6,12 +6,10 @@
 use crate::bus::{Bus, InboxPublishOpts, PublishOpts, SubscribeOpts};
 use crate::gen::easybus::v1 as pb;
 use crate::protocol::{
-    ch_file_get, ch_file_ingest, new_id, session_var_key, subject_tenant, tenant_object_name, var_key,
-    CONFIG_KV_BUCKET, GLOBAL_TENANT, LIFECYCLE_WILDCARD, CH_DISCOVER, VARS_BUCKET,
+    ch_file_get, ch_file_ingest, new_id, session_var_key, subject_tenant, tenant_object_name,
+    var_key, CH_DISCOVER, CONFIG_KV_BUCKET, GLOBAL_TENANT, LIFECYCLE_WILDCARD, VARS_BUCKET,
 };
-use crate::wire::{
-    code_to_wire, from_value, lifecycle_kind_string, to_value,
-};
+use crate::wire::{code_to_wire, from_value, lifecycle_kind_string, to_value};
 use async_trait::async_trait;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
@@ -175,7 +173,8 @@ pub type InterruptFn = Arc<dyn Fn(String, String, String) + Send + Sync>;
 
 pub type BoxFutureHook = std::pin::Pin<Box<dyn std::future::Future<Output = Value> + Send>>;
 pub type BoxFutureEvent = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
-pub type BoxFutureConfig = std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>>;
+pub type BoxFutureConfig =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>>;
 pub type BoxFutureLife = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
 
 /// The extension-side role.
@@ -199,18 +198,37 @@ pub struct ConfigStore {
 }
 
 impl ConfigStore {
-    pub fn get(&self, cfg: &HashMap<String, ConfigSpec>, tenant: &str, name: &str, session_name: &str) -> Value {
+    pub fn get(
+        &self,
+        cfg: &HashMap<String, ConfigSpec>,
+        tenant: &str,
+        name: &str,
+        session_name: &str,
+    ) -> Value {
         if !session_name.is_empty() {
-            if let Some(v) = self.session.get(tenant).and_then(|s| s.get(session_name)).and_then(|n| n.get(name)) {
+            if let Some(v) = self
+                .session
+                .get(tenant)
+                .and_then(|s| s.get(session_name))
+                .and_then(|n| n.get(name))
+            {
                 return v.clone();
             }
         }
         if let Some(v) = self.global.get(tenant).and_then(|n| n.get(name)) {
             return v.clone();
         }
-        cfg.get(name).and_then(|s| s.default.clone()).unwrap_or(Value::Null)
+        cfg.get(name)
+            .and_then(|s| s.default.clone())
+            .unwrap_or(Value::Null)
     }
-    pub fn apply_set(&mut self, tenant: &str, name: &str, value: Value, session_name: Option<&str>) {
+    pub fn apply_set(
+        &mut self,
+        tenant: &str,
+        name: &str,
+        value: Value,
+        session_name: Option<&str>,
+    ) {
         match session_name {
             Some(s) => {
                 self.session
@@ -221,7 +239,10 @@ impl ConfigStore {
                     .insert(name.to_string(), value);
             }
             None => {
-                self.global.entry(tenant.to_string()).or_default().insert(name.to_string(), value);
+                self.global
+                    .entry(tenant.to_string())
+                    .or_default()
+                    .insert(name.to_string(), value);
             }
         }
     }
@@ -251,7 +272,13 @@ fn resolve_replica_id(explicit: &str) -> String {
     };
     let s: String = raw
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     if s.is_empty() {
         uuid::Uuid::new_v4().to_string()
@@ -262,8 +289,12 @@ fn resolve_replica_id(explicit: &str) -> String {
 
 /// The small declarative JSON-schema subset (returns "" when valid).
 pub fn validate_hook_schema(schema: Option<&Value>, value: &Value, path: &str) -> String {
-    let Some(s) = schema else { return String::new() };
-    let Some(o) = s.as_object() else { return String::new() };
+    let Some(s) = schema else {
+        return String::new();
+    };
+    let Some(o) = s.as_object() else {
+        return String::new();
+    };
     if let Some(t) = o.get("type").and_then(|x| x.as_str()) {
         let ok = match t {
             "string" => value.is_string(),
@@ -301,7 +332,10 @@ pub fn validate_hook_schema(schema: Option<&Value>, value: &Value, path: &str) -
     }
     if let Some(enum_vals) = o.get("enum").and_then(|x| x.as_array()) {
         let vs = value.to_string();
-        if !enum_vals.iter().any(|e| e.to_string() == vs || e.as_str() == value.as_str()) {
+        if !enum_vals
+            .iter()
+            .any(|e| e.to_string() == vs || e.as_str() == value.as_str())
+        {
             return format!("{path}: value not in the declared enum");
         }
     }
@@ -356,7 +390,9 @@ impl Extension {
         for t in self.tasks.lock().unwrap().drain(..) {
             t.abort();
         }
-        self.bus.kv_delete(PRESENCE_BUCKET, &self.presence_key()).await;
+        self.bus
+            .kv_delete(PRESENCE_BUCKET, &self.presence_key())
+            .await;
         self.bus.close().await;
     }
 
@@ -372,7 +408,14 @@ impl Extension {
                 let me = me.clone();
                 async move {
                     let json = crate::wire::encode_manifest(&me.manifest);
-                    me.bus.kv_put(PRESENCE_BUCKET, &me.presence_key(), &String::from_utf8_lossy(&json), PRESENCE_TTL_MS).await;
+                    me.bus
+                        .kv_put(
+                            PRESENCE_BUCKET,
+                            &me.presence_key(),
+                            &String::from_utf8_lossy(&json),
+                            PRESENCE_TTL_MS,
+                        )
+                        .await;
                 }
             }
         };
@@ -405,16 +448,30 @@ impl Extension {
     async fn serve_discovery(self: &Arc<Self>) {
         let sub = self
             .bus
-            .subscribe(CH_DISCOVER, SubscribeOpts { queue: self.cfg.id.clone() })
+            .subscribe(
+                CH_DISCOVER,
+                SubscribeOpts {
+                    queue: self.cfg.id.clone(),
+                },
+            )
             .await;
         let me = self.clone();
         self.spawn(async move {
             while !me.stopped.load(Ordering::Relaxed) {
                 if let Some(env) = sub.next().await {
                     if let Some(reply) = &env.reply_to {
-                        let payload: Value = serde_json::from_slice(&crate::wire::encode_manifest(&me.manifest)).unwrap_or(Value::Null);
+                        let payload: Value =
+                            serde_json::from_slice(&crate::wire::encode_manifest(&me.manifest))
+                                .unwrap_or(Value::Null);
                         me.bus
-                            .publish(reply, payload, PublishOpts { tenant: GLOBAL_TENANT.to_string(), ..Default::default() })
+                            .publish(
+                                reply,
+                                payload,
+                                PublishOpts {
+                                    tenant: GLOBAL_TENANT.to_string(),
+                                    ..Default::default()
+                                },
+                            )
                             .await;
                     }
                 }
@@ -426,20 +483,30 @@ impl Extension {
         for (name, (spec, handler)) in self.cfg.tools.clone() {
             let sub = self
                 .bus
-                .subscribe(&format!("easybus.*.tool.call.{}.{}", self.cfg.id, name), SubscribeOpts { queue: self.cfg.id.clone() })
+                .subscribe(
+                    &format!("easybus.*.tool.call.{}.{}", self.cfg.id, name),
+                    SubscribeOpts {
+                        queue: self.cfg.id.clone(),
+                    },
+                )
                 .await;
             let me = self.clone();
             let handler = handler.clone();
             self.spawn(async move {
                 while !me.stopped.load(Ordering::Relaxed) {
-                    let Some(env) = sub.next().await else { continue };
-                    let Some(reply_to) = env.reply_to.clone() else { continue };
+                    let Some(env) = sub.next().await else {
+                        continue;
+                    };
+                    let Some(reply_to) = env.reply_to.clone() else {
+                        continue;
+                    };
                     let spec = spec.clone();
                     let me2 = me.clone();
                     let handler = handler.clone();
                     let name = name.clone();
                     tokio::spawn(async move {
-                        me2.handle_tool_call(&name, &spec, handler, env, &reply_to).await;
+                        me2.handle_tool_call(&name, &spec, handler, env, &reply_to)
+                            .await;
                     });
                 }
             });
@@ -454,10 +521,22 @@ impl Extension {
         env: pb::Envelope,
         reply_to: &str,
     ) {
-        let call = from_value(env.payload.as_ref().unwrap_or(&prost_types::Value { kind: None }));
+        let call = from_value(
+            env.payload
+                .as_ref()
+                .unwrap_or(&prost_types::Value { kind: None }),
+        );
         let session_name = env.session_name.clone().unwrap_or_default();
-        let tenant = if env.tenant.is_empty() { subject_tenant(&env.ch) } else { env.tenant.clone() };
-        let call_id = call.get("call_id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let tenant = if env.tenant.is_empty() {
+            subject_tenant(&env.ch)
+        } else {
+            env.tenant.clone()
+        };
+        let call_id = call
+            .get("call_id")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
         let cancel = Arc::new(tokio::sync::Notify::new());
         if !session_name.is_empty() {
             self.inflight
@@ -473,7 +552,10 @@ impl Extension {
             ..Default::default()
         };
         let args = call.get("arguments").cloned().unwrap_or(json!({}));
-        match handler.execute(args, &call_id, &session_name, &tenant, cancel).await {
+        match handler
+            .execute(args, &call_id, &session_name, &tenant, cancel)
+            .await
+        {
             Ok(data) => {
                 if data.content.len() > MAX_TOOL_CONTENT_BYTES {
                     res.error = Some(pb::ToolError {
@@ -511,32 +593,70 @@ impl Extension {
             }
         }
         if !session_name.is_empty() {
-            if let Some(m) = self.inflight.lock().unwrap().get_mut(&format!("{tenant}\x00{session_name}")) {
+            if let Some(m) = self
+                .inflight
+                .lock()
+                .unwrap()
+                .get_mut(&format!("{tenant}\x00{session_name}"))
+            {
                 m.remove(&call_id);
             }
         }
         let _ = spec;
-        let payload: Value = serde_json::from_slice(&crate::wire::encode_tool_result(&res)).unwrap_or(Value::Null);
-        self.bus.publish(reply_to, payload, PublishOpts { tenant: tenant.clone(), ..Default::default() }).await;
+        let payload: Value =
+            serde_json::from_slice(&crate::wire::encode_tool_result(&res)).unwrap_or(Value::Null);
+        self.bus
+            .publish(
+                reply_to,
+                payload,
+                PublishOpts {
+                    tenant: tenant.clone(),
+                    ..Default::default()
+                },
+            )
+            .await;
     }
 
     async fn serve_variables(self: &Arc<Self>) {
         for (name, spec) in self.cfg.variables.clone() {
             let sub = self
                 .bus
-                .subscribe(&format!("easybus.*.var.{}.{}", self.cfg.id, name), SubscribeOpts { queue: self.cfg.id.clone() })
+                .subscribe(
+                    &format!("easybus.*.var.{}.{}", self.cfg.id, name),
+                    SubscribeOpts {
+                        queue: self.cfg.id.clone(),
+                    },
+                )
                 .await;
             let me = self.clone();
             self.spawn(async move {
                 while !me.stopped.load(Ordering::Relaxed) {
-                    let Some(env) = sub.next().await else { continue };
-                    let Some(reply_to) = env.reply_to.clone() else { continue };
-                    let tenant = if env.tenant.is_empty() { subject_tenant(&env.ch) } else { env.tenant.clone() };
+                    let Some(env) = sub.next().await else {
+                        continue;
+                    };
+                    let Some(reply_to) = env.reply_to.clone() else {
+                        continue;
+                    };
+                    let tenant = if env.tenant.is_empty() {
+                        subject_tenant(&env.ch)
+                    } else {
+                        env.tenant.clone()
+                    };
                     // A resolver returns the value; here we echo the KV value.
                     let _ = &spec;
-                    let v = me.bus.kv_get(VARS_BUCKET, &var_key(&tenant, &me.cfg.id, &name)).await;
+                    let v = me
+                        .bus
+                        .kv_get(VARS_BUCKET, &var_key(&tenant, &me.cfg.id, &name))
+                        .await;
                     me.bus
-                        .publish(&reply_to, json!({"name": name, "value": v}), PublishOpts { tenant, ..Default::default() })
+                        .publish(
+                            &reply_to,
+                            json!({"name": name, "value": v}),
+                            PublishOpts {
+                                tenant,
+                                ..Default::default()
+                            },
+                        )
                         .await;
                 }
             });
@@ -547,7 +667,12 @@ impl Extension {
         for hook in self.cfg.call_hooks.clone() {
             let sub = self
                 .bus
-                .subscribe(&format!("easybus.*.hook.call.{}.{}", self.cfg.id, hook), SubscribeOpts { queue: self.cfg.id.clone() })
+                .subscribe(
+                    &format!("easybus.*.hook.call.{}.{}", self.cfg.id, hook),
+                    SubscribeOpts {
+                        queue: self.cfg.id.clone(),
+                    },
+                )
                 .await;
             let me = self.clone();
             self.spawn(async move {
@@ -577,15 +702,34 @@ impl Extension {
         for hook in self.cfg.event_hooks.clone() {
             let sub = self
                 .bus
-                .subscribe(&format!("easybus.*.hook.event.{}", hook), SubscribeOpts { queue: self.cfg.id.clone() })
+                .subscribe(
+                    &format!("easybus.*.hook.event.{}", hook),
+                    SubscribeOpts {
+                        queue: self.cfg.id.clone(),
+                    },
+                )
                 .await;
             let me = self.clone();
             self.spawn(async move {
                 while !me.stopped.load(Ordering::Relaxed) {
-                    let Some(env) = sub.next().await else { continue };
-                    let ev = from_value(env.payload.as_ref().unwrap_or(&prost_types::Value { kind: None }));
-                    let session_name = ev.get("session_name").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                    let tenant = if env.tenant.is_empty() { subject_tenant(&env.ch) } else { env.tenant.clone() };
+                    let Some(env) = sub.next().await else {
+                        continue;
+                    };
+                    let ev = from_value(
+                        env.payload
+                            .as_ref()
+                            .unwrap_or(&prost_types::Value { kind: None }),
+                    );
+                    let session_name = ev
+                        .get("session_name")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let tenant = if env.tenant.is_empty() {
+                        subject_tenant(&env.ch)
+                    } else {
+                        env.tenant.clone()
+                    };
                     let schema = me.cfg.hook_schemas.get("event").and_then(|m| m.get(&hook));
                     let payload = ev.get("payload").cloned().unwrap_or(Value::Null);
                     if !validate_hook_schema(schema, &payload, "payload").is_empty() {
@@ -603,24 +747,43 @@ impl Extension {
         if self.cfg.lifecycle.is_empty() || self.cfg.on_lifecycle.is_none() {
             return;
         }
-        let wanted: std::collections::HashSet<String> = self.cfg.lifecycle.iter().cloned().collect();
+        let wanted: std::collections::HashSet<String> =
+            self.cfg.lifecycle.iter().cloned().collect();
         let sub = self
             .bus
-            .subscribe(&format!("{LIFECYCLE_WILDCARD}>"), SubscribeOpts { queue: self.cfg.id.clone() })
+            .subscribe(
+                &format!("{LIFECYCLE_WILDCARD}>"),
+                SubscribeOpts {
+                    queue: self.cfg.id.clone(),
+                },
+            )
             .await;
         let me = self.clone();
         self.spawn(async move {
             while !me.stopped.load(Ordering::Relaxed) {
-                let Some(env) = sub.next().await else { continue };
-                let mut ev = from_value(env.payload.as_ref().unwrap_or(&prost_types::Value { kind: None }));
-                let tenant = if env.tenant.is_empty() { subject_tenant(&env.ch) } else { env.tenant.clone() };
+                let Some(env) = sub.next().await else {
+                    continue;
+                };
+                let mut ev = from_value(
+                    env.payload
+                        .as_ref()
+                        .unwrap_or(&prost_types::Value { kind: None }),
+                );
+                let tenant = if env.tenant.is_empty() {
+                    subject_tenant(&env.ch)
+                } else {
+                    env.tenant.clone()
+                };
                 let kind_num = ev.get("kind").and_then(|x| x.as_f64()).unwrap_or(0.0) as i32;
                 let kind = lifecycle_kind_string(kind_num).to_string();
                 if !wanted.contains(&kind) {
                     continue;
                 }
                 if kind == "deleted" {
-                    let session_name = ev.get("session_name").and_then(|x| x.as_str()).unwrap_or("");
+                    let session_name = ev
+                        .get("session_name")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("");
                     me.delete_session_variables(&tenant, session_name).await;
                 }
                 if let Some(o) = ev.as_object_mut() {
@@ -636,17 +799,40 @@ impl Extension {
     async fn serve_interrupt(self: &Arc<Self>) {
         let sub = self
             .bus
-            .subscribe(&format!("easybus.*.ctl.interrupt.{}", self.cfg.id), SubscribeOpts { queue: self.cfg.id.clone() })
+            .subscribe(
+                &format!("easybus.*.ctl.interrupt.{}", self.cfg.id),
+                SubscribeOpts {
+                    queue: self.cfg.id.clone(),
+                },
+            )
             .await;
         let me = self.clone();
         self.spawn(async move {
             while !me.stopped.load(Ordering::Relaxed) {
-                let Some(env) = sub.next().await else { continue };
-                let sig = from_value(env.payload.as_ref().unwrap_or(&prost_types::Value { kind: None }));
-                let session_name = sig.get("session_name").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                let tenant = if env.tenant.is_empty() { subject_tenant(&env.ch) } else { env.tenant.clone() };
+                let Some(env) = sub.next().await else {
+                    continue;
+                };
+                let sig = from_value(
+                    env.payload
+                        .as_ref()
+                        .unwrap_or(&prost_types::Value { kind: None }),
+                );
+                let session_name = sig
+                    .get("session_name")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let tenant = if env.tenant.is_empty() {
+                    subject_tenant(&env.ch)
+                } else {
+                    env.tenant.clone()
+                };
                 me.cancel_inflight(&tenant, &session_name);
-                let reason = sig.get("reason").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                let reason = sig
+                    .get("reason")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 if let Some(f) = &me.cfg.on_interrupt {
                     f(session_name, reason, tenant);
                 }
@@ -663,7 +849,11 @@ impl Extension {
                 }
             }
         } else if !tenant.is_empty() {
-            let keys: Vec<String> = m.keys().filter(|k| k.starts_with(&format!("{tenant}\x00"))).cloned().collect();
+            let keys: Vec<String> = m
+                .keys()
+                .filter(|k| k.starts_with(&format!("{tenant}\x00")))
+                .cloned()
+                .collect();
             for k in keys {
                 if let Some(map) = m.remove(&k) {
                     for c in map.values() {
@@ -682,7 +872,13 @@ impl Extension {
 
     // ---- session-facing helpers -------------------------------------------
 
-    pub async fn publish_session_event(&self, tenant: &str, session_name: &str, event: &str, params: Value) {
+    pub async fn publish_session_event(
+        &self,
+        tenant: &str,
+        session_name: &str,
+        event: &str,
+        params: Value,
+    ) {
         let id = new_id();
         self.bus
             .inbox_publish(
@@ -697,7 +893,13 @@ impl Extension {
             .await;
     }
 
-    pub async fn publish_mailbox_event(&self, tenant: &str, session_name: &str, typ: &str, payload: Value) {
+    pub async fn publish_mailbox_event(
+        &self,
+        tenant: &str,
+        session_name: &str,
+        typ: &str,
+        payload: Value,
+    ) {
         let id = new_id();
         self.bus
             .inbox_publish(
@@ -713,7 +915,9 @@ impl Extension {
     }
 
     pub async fn put_object(&self, tenant: &str, name: &str, data: Vec<u8>) {
-        self.bus.object_put(&tenant_object_name(tenant, name), data).await;
+        self.bus
+            .object_put(&tenant_object_name(tenant, name), data)
+            .await;
     }
     pub async fn get_object(&self, tenant: &str, name: &str) -> Option<Vec<u8>> {
         self.bus.object_get(&tenant_object_name(tenant, name)).await
@@ -730,9 +934,17 @@ impl Extension {
     /// Store bytes through the AGENT (a 1:1 `req` on
     /// `easybus.<tenant>.file.ingest`) and return the canonical `file:<code>`
     /// plus the content type the agent DERIVED from the bytes.
-    pub async fn ingest_file_via_agent(&self, tenant: &str, name: &str, data: Vec<u8>, session_name: &str) -> Result<(String, String), String> {
+    pub async fn ingest_file_via_agent(
+        &self,
+        tenant: &str,
+        name: &str,
+        data: Vec<u8>,
+        session_name: &str,
+    ) -> Result<(String, String), String> {
         let object = format!("{}.ingest", new_id());
-        self.bus.object_put(&tenant_object_name(tenant, &object), data).await;
+        self.bus
+            .object_put(&tenant_object_name(tenant, &object), data)
+            .await;
         let mut req = json!({"name": name, "object": object});
         if !session_name.is_empty() {
             req["session_name"] = json!(session_name);
@@ -751,7 +963,12 @@ impl Extension {
             )
             .await
             .ok_or_else(|| "file ingest: no reply".to_string())?;
-        let res = from_value(reply.payload.as_ref().unwrap_or(&prost_types::Value { kind: None }));
+        let res = from_value(
+            reply
+                .payload
+                .as_ref()
+                .unwrap_or(&prost_types::Value { kind: None }),
+        );
         if res.get("ok").and_then(|x| x.as_bool()) != Some(true) {
             let msg = res
                 .get("error")
@@ -761,8 +978,14 @@ impl Extension {
             return Err(format!("file ingest: {msg}"));
         }
         Ok((
-            res.get("code").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-            res.get("mime").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            res.get("code")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+            res.get("mime")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
         ))
     }
 
@@ -781,33 +1004,62 @@ impl Extension {
                 },
             )
             .await?;
-        let res = from_value(reply.payload.as_ref().unwrap_or(&prost_types::Value { kind: None }));
+        let res = from_value(
+            reply
+                .payload
+                .as_ref()
+                .unwrap_or(&prost_types::Value { kind: None }),
+        );
         if res.get("ok").and_then(|x| x.as_bool()) != Some(true) {
             return None;
         }
         let meta = res.get("meta")?.clone();
         let object = res.get("object").and_then(|x| x.as_str())?;
-        let data = self.bus.object_get(&tenant_object_name(tenant, object)).await?;
+        let data = self
+            .bus
+            .object_get(&tenant_object_name(tenant, object))
+            .await?;
         Some((meta, data))
     }
 
     pub async fn set_variable(&self, tenant: &str, name: &str, value: &str) {
-        self.bus.kv_put(VARS_BUCKET, &var_key(tenant, &self.cfg.id, name), value, 0).await;
-    }
-    pub async fn set_session_variable(&self, tenant: &str, session_name: &str, name: &str, value: &str) {
         self.bus
-            .kv_put(VARS_BUCKET, &session_var_key(tenant, &self.cfg.id, session_name, name), value, 0)
+            .kv_put(VARS_BUCKET, &var_key(tenant, &self.cfg.id, name), value, 0)
+            .await;
+    }
+    pub async fn set_session_variable(
+        &self,
+        tenant: &str,
+        session_name: &str,
+        name: &str,
+        value: &str,
+    ) {
+        self.bus
+            .kv_put(
+                VARS_BUCKET,
+                &session_var_key(tenant, &self.cfg.id, session_name, name),
+                value,
+                0,
+            )
             .await;
     }
     pub async fn delete_session_variables(&self, tenant: &str, session_name: &str) {
         for (name, spec) in &self.cfg.variables {
             if spec.scope == "session" {
-                self.bus.kv_delete(VARS_BUCKET, &session_var_key(tenant, &self.cfg.id, session_name, name)).await;
+                self.bus
+                    .kv_delete(
+                        VARS_BUCKET,
+                        &session_var_key(tenant, &self.cfg.id, session_name, name),
+                    )
+                    .await;
             }
         }
     }
     pub fn get_config(&self, tenant: &str, name: &str, session_name: &str) -> Value {
-        self.config_store.lock().unwrap().get(&self.cfg.config, tenant, name, session_name)
+        self.config_store
+            .lock()
+            .unwrap()
+            .get(&self.cfg.config, tenant, name, session_name)
     }
 
     async fn serve_config(self: &Arc<Self>) {
@@ -815,7 +1067,10 @@ impl Extension {
             return;
         }
         // KV recovery.
-        let (mut rx, stop) = self.bus.kv_watch(CONFIG_KV_BUCKET, &format!("t.*.{}.>", self.cfg.id)).await;
+        let (mut rx, stop) = self
+            .bus
+            .kv_watch(CONFIG_KV_BUCKET, &format!("t.*.{}.>", self.cfg.id))
+            .await;
         let me = self.clone();
         self.spawn(async move {
             while let Some(ev) = rx.recv().await {
@@ -828,7 +1083,12 @@ impl Extension {
         let _ = stop;
         let sub = self
             .bus
-            .subscribe(&format!("easybus.*.config.{}", self.cfg.id), SubscribeOpts { queue: self.cfg.id.clone() })
+            .subscribe(
+                &format!("easybus.*.config.{}", self.cfg.id),
+                SubscribeOpts {
+                    queue: self.cfg.id.clone(),
+                },
+            )
             .await;
         let me = self.clone();
         self.spawn(async move {
@@ -900,7 +1160,12 @@ impl Extension {
         } else if parts.len() >= 2 {
             let session = crate::protocol::unescape_kv_segment(parts[0]);
             let name = parts[1..].join(".");
-            let m = store.session.entry(tenant).or_default().entry(session).or_default();
+            let m = store
+                .session
+                .entry(tenant)
+                .or_default()
+                .entry(session)
+                .or_default();
             if ev.deleted {
                 m.remove(&name);
             } else {
@@ -926,7 +1191,11 @@ fn build_manifest(cfg: &Config) -> pb::ExtensionManifest {
             required_config: spec.required_config.clone(),
             // Without this the manifest carries per-tool namespace tags that
             // reference groups the client never receives.
-            namespace: if spec.namespace.is_empty() { None } else { Some(spec.namespace.clone()) },
+            namespace: if spec.namespace.is_empty() {
+                None
+            } else {
+                Some(spec.namespace.clone())
+            },
             ..Default::default()
         });
     }
@@ -937,7 +1206,11 @@ fn build_manifest(cfg: &Config) -> pb::ExtensionManifest {
         m.prompt_variables.push(pb::ExtensionVariable {
             name: name.clone(),
             description: Some(spec.description.clone()),
-            scope: if spec.scope.is_empty() { "global".to_string() } else { spec.scope.clone() },
+            scope: if spec.scope.is_empty() {
+                "global".to_string()
+            } else {
+                spec.scope.clone()
+            },
             ..Default::default()
         });
     }
@@ -947,9 +1220,21 @@ fn build_manifest(cfg: &Config) -> pb::ExtensionManifest {
     for (name, spec) in &cfg.config {
         let mut item = pb::ExtensionConfigItem {
             name: name.clone(),
-            r#type: if spec.r#type.is_empty() { "string".to_string() } else { spec.r#type.clone() },
-            kind: Some(if spec.kind.is_empty() { "value".to_string() } else { spec.kind.clone() }),
-            scope: if spec.scope.is_empty() { "global".to_string() } else { spec.scope.clone() },
+            r#type: if spec.r#type.is_empty() {
+                "string".to_string()
+            } else {
+                spec.r#type.clone()
+            },
+            kind: Some(if spec.kind.is_empty() {
+                "value".to_string()
+            } else {
+                spec.kind.clone()
+            }),
+            scope: if spec.scope.is_empty() {
+                "global".to_string()
+            } else {
+                spec.scope.clone()
+            },
             ..Default::default()
         };
         if !spec.capability.is_empty() {
@@ -982,7 +1267,11 @@ fn build_manifest(cfg: &Config) -> pb::ExtensionManifest {
     for ns in &cfg.namespaces {
         m.namespaces.push(pb::ExtensionNamespace {
             name: ns.name.clone(),
-            description: if ns.description.is_empty() { None } else { Some(ns.description.clone()) },
+            description: if ns.description.is_empty() {
+                None
+            } else {
+                Some(ns.description.clone())
+            },
             descriptions: ns.descriptions.clone(),
         });
     }
@@ -1018,7 +1307,14 @@ where
         tenant: &str,
         cancel: Arc<tokio::sync::Notify>,
     ) -> Result<ToolResultData, ToolError> {
-        (self.0)(args, call_id.to_string(), session_name.to_string(), tenant.to_string(), cancel).await
+        (self.0)(
+            args,
+            call_id.to_string(),
+            session_name.to_string(),
+            tenant.to_string(),
+            cancel,
+        )
+        .await
     }
 }
 
@@ -1035,12 +1331,24 @@ fn to_field_schema(f: &crate::extension::FieldSpec) -> pb::ConfigFieldSchema {
     pb::ConfigFieldSchema {
         name: f.name.clone(),
         r#type: f.r#type.clone(),
-        kind: if f.kind.is_empty() { None } else { Some(f.kind.clone()) },
-        format: if f.format.is_empty() { None } else { Some(f.format.clone()) },
+        kind: if f.kind.is_empty() {
+            None
+        } else {
+            Some(f.kind.clone())
+        },
+        format: if f.format.is_empty() {
+            None
+        } else {
+            Some(f.format.clone())
+        },
         enum_values: f.enum_values.clone(),
         default: f.default.as_ref().map(to_value),
         required: f.required,
-        description: if f.description.is_empty() { None } else { Some(f.description.clone()) },
+        description: if f.description.is_empty() {
+            None
+        } else {
+            Some(f.description.clone())
+        },
         descriptions: f.descriptions.clone(),
         fields: f.fields.iter().map(to_field_schema).collect(),
     }

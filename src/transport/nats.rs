@@ -53,7 +53,15 @@ fn kind_enum(kind: &str) -> i32 {
     crate::wire::kind_from_string(kind)
 }
 
-fn build_envelope(kind: &str, ch: &str, payload: &Value, tenant: &str, id: &str, session_name: &str, reply_to: &str) -> Vec<u8> {
+fn build_envelope(
+    kind: &str,
+    ch: &str,
+    payload: &Value,
+    tenant: &str,
+    id: &str,
+    session_name: &str,
+    reply_to: &str,
+) -> Vec<u8> {
     let mut env = pb::Envelope {
         v: Some(2),
         ch: ch.to_string(),
@@ -95,7 +103,10 @@ pub struct NatsBus {
 
 impl NatsBus {
     /// Connect a NATS bus with the default stream topology.
-    pub async fn connect(url: &str, opts: Options) -> Result<Arc<Self>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn connect(
+        url: &str,
+        opts: Options,
+    ) -> Result<Arc<Self>, Box<dyn std::error::Error + Send + Sync>> {
         let nc = async_nats::connect(url).await?;
         let js = async_nats::jetstream::new(nc.clone());
         Self::ensure_streams(&js, &opts).await?;
@@ -106,15 +117,21 @@ impl NatsBus {
         }))
     }
 
-    async fn ensure_streams(js: &Context, opts: &Options) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn ensure_streams(
+        js: &Context,
+        opts: &Options,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let max_age = if opts.max_age_ms > 0 {
             Duration::from_millis(opts.max_age_ms)
         } else {
             Duration::from_secs(24 * 3600)
         };
-        let specs: [( &str, Vec<&str> ); 3] = [
+        let specs: [(&str, Vec<&str>); 3] = [
             (STREAM_MAILBOX, vec![INBOX_WILDCARD]),
-            (STREAM_EVENTS, vec![EVENTS_WILDCARD, LIFECYCLE_WILDCARD, CHANGED_WILDCARD]),
+            (
+                STREAM_EVENTS,
+                vec![EVENTS_WILDCARD, LIFECYCLE_WILDCARD, CHANGED_WILDCARD],
+            ),
             (STREAM_DLQ, vec![DLQ_WILDCARD]),
         ];
         for (name, subjects) in specs {
@@ -130,7 +147,13 @@ impl NatsBus {
         Ok(())
     }
 
-    fn auth_headers(&self, ch: &str, kind: &str, id: &str, payload: Option<&Value>) -> Option<HeaderMap> {
+    fn auth_headers(
+        &self,
+        ch: &str,
+        kind: &str,
+        id: &str,
+        payload: Option<&Value>,
+    ) -> Option<HeaderMap> {
         let idn = self.idn.as_ref()?;
         let h = auth_header(
             idn,
@@ -148,7 +171,15 @@ impl NatsBus {
         Some(hm)
     }
 
-    fn verify_msg(&self, headers: &HeaderMap, tenant: &str, ch: &str, kind: &str, id: &str, payload: Option<&Value>) -> bool {
+    fn verify_msg(
+        &self,
+        headers: &HeaderMap,
+        tenant: &str,
+        ch: &str,
+        kind: &str,
+        id: &str,
+        payload: Option<&Value>,
+    ) -> bool {
         if self.idn.is_none() {
             return true;
         }
@@ -171,10 +202,23 @@ impl NatsBus {
         )
     }
 
-    fn decode_msg(&self, subject: &str, headers: &HeaderMap, data: &[u8], reply: Option<&str>) -> Option<pb::Envelope> {
+    fn decode_msg(
+        &self,
+        subject: &str,
+        headers: &HeaderMap,
+        data: &[u8],
+        reply: Option<&str>,
+    ) -> Option<pb::Envelope> {
         let mut env = decode_envelope(data).ok()?;
         let payload = env.payload.as_ref().map(from_value);
-        if !self.verify_msg(headers, &env.tenant, subject, crate::wire::kind_to_string(env.kind), env.id.as_deref().unwrap_or(""), payload.as_ref()) {
+        if !self.verify_msg(
+            headers,
+            &env.tenant,
+            subject,
+            crate::wire::kind_to_string(env.kind),
+            env.id.as_deref().unwrap_or(""),
+            payload.as_ref(),
+        ) {
             return None;
         }
         if env.reply_to.is_none() {
@@ -189,21 +233,46 @@ impl NatsBus {
 #[async_trait]
 impl Bus for NatsBus {
     async fn request(&self, ch: &str, payload: Value, opts: RequestOpts) -> Option<pb::Envelope> {
-        let data = build_envelope("req", ch, &payload, &tenant_of(ch, &opts.tenant), "", &opts.session_name, "");
+        let data = build_envelope(
+            "req",
+            ch,
+            &payload,
+            &tenant_of(ch, &opts.tenant),
+            "",
+            &opts.session_name,
+            "",
+        );
         let timeout = if opts.timeout_ms > 0 {
             Duration::from_millis(opts.timeout_ms)
         } else {
             Duration::from_secs(5)
         };
         let headers = self.auth_headers(ch, "req", "", Some(&payload));
-        let fut = self.nc.request_with_headers(ch.to_string(), headers.unwrap_or_default(), Bytes::from(data));
+        let fut = self.nc.request_with_headers(
+            ch.to_string(),
+            headers.unwrap_or_default(),
+            Bytes::from(data),
+        );
         let msg = tokio::time::timeout(timeout, fut).await.ok()?.ok()?;
         let reply = msg.reply.as_ref().map(|r| r.as_str());
-        self.decode_msg(ch, msg.headers.as_ref().unwrap_or(&HeaderMap::new()), &msg.payload, reply)
+        self.decode_msg(
+            ch,
+            msg.headers.as_ref().unwrap_or(&HeaderMap::new()),
+            &msg.payload,
+            reply,
+        )
     }
 
     async fn request_many(&self, ch: &str, payload: Value, opts: RequestOpts) -> Vec<pb::Envelope> {
-        let data = build_envelope("req", ch, &payload, &tenant_of(ch, &opts.tenant), "", "", "");
+        let data = build_envelope(
+            "req",
+            ch,
+            &payload,
+            &tenant_of(ch, &opts.tenant),
+            "",
+            "",
+            "",
+        );
         let max_wait = if opts.max_wait_ms > 0 {
             Duration::from_millis(opts.max_wait_ms)
         } else {
@@ -216,7 +285,15 @@ impl Bus for NatsBus {
         };
         let _ = self.nc.flush().await;
         let headers = self.auth_headers(ch, "req", "", Some(&payload));
-        let _ = self.nc.publish_with_reply_and_headers(ch.to_string(), inbox.clone(), headers.unwrap_or_default(), Bytes::from(data)).await;
+        let _ = self
+            .nc
+            .publish_with_reply_and_headers(
+                ch.to_string(),
+                inbox.clone(),
+                headers.unwrap_or_default(),
+                Bytes::from(data),
+            )
+            .await;
         let _ = self.nc.flush().await;
         let mut out = vec![];
         let deadline = tokio::time::Instant::now() + max_wait;
@@ -228,7 +305,12 @@ impl Bus for NatsBus {
             match tokio::time::timeout(deadline - now, sub.next()).await {
                 Ok(Some(msg)) => {
                     let reply = msg.reply.as_ref().map(|r| r.as_str());
-                    if let Some(env) = self.decode_msg(&msg.subject, msg.headers.as_ref().unwrap_or(&HeaderMap::new()), &msg.payload, reply) {
+                    if let Some(env) = self.decode_msg(
+                        &msg.subject,
+                        msg.headers.as_ref().unwrap_or(&HeaderMap::new()),
+                        &msg.payload,
+                        reply,
+                    ) {
                         out.push(env);
                     }
                 }
@@ -239,12 +321,35 @@ impl Bus for NatsBus {
     }
 
     async fn publish(&self, ch: &str, payload: Value, opts: PublishOpts) {
-        let data = build_envelope("pub", ch, &payload, &tenant_of(ch, &opts.tenant), "", "", &opts.reply_to);
+        let data = build_envelope(
+            "pub",
+            ch,
+            &payload,
+            &tenant_of(ch, &opts.tenant),
+            "",
+            "",
+            &opts.reply_to,
+        );
         let headers = self.auth_headers(ch, "pub", "", Some(&payload));
         if opts.reply_to.is_empty() {
-            let _ = self.nc.publish_with_headers(ch.to_string(), headers.unwrap_or_default(), Bytes::from(data)).await;
+            let _ = self
+                .nc
+                .publish_with_headers(
+                    ch.to_string(),
+                    headers.unwrap_or_default(),
+                    Bytes::from(data),
+                )
+                .await;
         } else {
-            let _ = self.nc.publish_with_reply_and_headers(ch.to_string(), opts.reply_to.clone(), headers.unwrap_or_default(), Bytes::from(data)).await;
+            let _ = self
+                .nc
+                .publish_with_reply_and_headers(
+                    ch.to_string(),
+                    opts.reply_to.clone(),
+                    headers.unwrap_or_default(),
+                    Bytes::from(data),
+                )
+                .await;
         }
         let _ = self.nc.flush().await;
     }
@@ -253,7 +358,9 @@ impl Bus for NatsBus {
         let sub = if opts.queue.is_empty() {
             self.nc.subscribe(ch.to_string()).await
         } else {
-            self.nc.queue_subscribe(ch.to_string(), opts.queue.clone()).await
+            self.nc
+                .queue_subscribe(ch.to_string(), opts.queue.clone())
+                .await
         };
         let sub = sub.expect("subscribe");
         let _ = self.nc.flush().await;
@@ -263,14 +370,29 @@ impl Bus for NatsBus {
     }
 
     async fn inbox_publish(&self, ch: &str, payload: Value, opts: InboxPublishOpts) {
-        let data = build_envelope("queue", ch, &payload, &tenant_of(ch, &opts.tenant), &opts.id, &opts.session_name, "");
+        let data = build_envelope(
+            "queue",
+            ch,
+            &payload,
+            &tenant_of(ch, &opts.tenant),
+            &opts.id,
+            &opts.session_name,
+            "",
+        );
         let mut hm = HeaderMap::new();
         hm.insert("Nats-Msg-Id", opts.id.as_str());
-        let _ = self.js.publish_with_headers(ch.to_string(), hm, Bytes::from(data)).await;
+        let _ = self
+            .js
+            .publish_with_headers(ch.to_string(), hm, Bytes::from(data))
+            .await;
     }
 
     async fn inbox_consume(&self, opts: InboxConsumeOpts) -> Box<dyn InboxSubscription> {
-        let subject = if opts.subject.is_empty() { INBOX_WILDCARD.to_string() } else { opts.subject.clone() };
+        let subject = if opts.subject.is_empty() {
+            INBOX_WILDCARD.to_string()
+        } else {
+            opts.subject.clone()
+        };
         let durable = if subject == INBOX_WILDCARD {
             DURABLE_CONSUMER.to_string()
         } else {
@@ -302,10 +424,18 @@ impl Bus for NatsBus {
     async fn replay(&self, ch: &str) -> Vec<pb::Envelope> {
         let mut out = vec![];
         for name in [STREAM_EVENTS, STREAM_MAILBOX, STREAM_DLQ] {
-            let Ok(mut stream) = self.js.get_stream(name).await else { continue };
+            let Ok(mut stream) = self.js.get_stream(name).await else {
+                continue;
+            };
             let info = stream.info().await;
-            let subjects: Vec<String> = info.as_ref().map(|i| i.config.subjects.clone()).unwrap_or_default();
-            if !subjects.iter().any(|s| s == ch || (s.contains('*') || s.contains('>')) && subject_match(s, ch)) {
+            let subjects: Vec<String> = info
+                .as_ref()
+                .map(|i| i.config.subjects.clone())
+                .unwrap_or_default();
+            if !subjects
+                .iter()
+                .any(|s| s == ch || (s.contains('*') || s.contains('>')) && subject_match(s, ch))
+            {
                 continue;
             }
             let cfg = pull::Config {
@@ -314,10 +444,21 @@ impl Bus for NatsBus {
                 ..Default::default()
             };
             if let Ok(consumer) = stream.create_consumer(cfg).await {
-                if let Ok(mut batch) = consumer.fetch().max_messages(1000).expires(Duration::from_secs(1)).messages().await {
+                if let Ok(mut batch) = consumer
+                    .fetch()
+                    .max_messages(1000)
+                    .expires(Duration::from_secs(1))
+                    .messages()
+                    .await
+                {
                     while let Some(Ok(m)) = batch.next().await {
                         let reply = m.reply.as_ref().map(|r| r.as_str());
-                        if let Some(env) = self.decode_msg(&m.subject, m.headers.as_ref().unwrap_or(&HeaderMap::new()), &m.payload, reply) {
+                        if let Some(env) = self.decode_msg(
+                            &m.subject,
+                            m.headers.as_ref().unwrap_or(&HeaderMap::new()),
+                            &m.payload,
+                            reply,
+                        ) {
                             out.push(env);
                         }
                     }
@@ -331,13 +472,28 @@ impl Bus for NatsBus {
     async fn object_put(&self, name: &str, data: Vec<u8>) {
         let os = match self.js.get_object_store(OBJECT_BUCKET).await {
             Ok(os) => os,
-            Err(_) => match self.js.create_object_store(object_store::Config { bucket: OBJECT_BUCKET.to_string(), ..Default::default() }).await {
+            Err(_) => match self
+                .js
+                .create_object_store(object_store::Config {
+                    bucket: OBJECT_BUCKET.to_string(),
+                    ..Default::default()
+                })
+                .await
+            {
                 Ok(os) => os,
                 Err(_) => return,
             },
         };
         let mut reader = std::io::Cursor::new(data);
-        let _ = os.put(object_store::ObjectMetadata { name: name.to_string(), ..Default::default() }, &mut reader).await;
+        let _ = os
+            .put(
+                object_store::ObjectMetadata {
+                    name: name.to_string(),
+                    ..Default::default()
+                },
+                &mut reader,
+            )
+            .await;
     }
 
     async fn object_get(&self, name: &str) -> Option<Vec<u8>> {
@@ -353,13 +509,28 @@ impl Bus for NatsBus {
     async fn object_put_persistent(&self, name: &str, data: Vec<u8>) {
         let os = match self.js.get_object_store(OBJECT_BUCKET_DUR).await {
             Ok(os) => os,
-            Err(_) => match self.js.create_object_store(object_store::Config { bucket: OBJECT_BUCKET_DUR.to_string(), ..Default::default() }).await {
+            Err(_) => match self
+                .js
+                .create_object_store(object_store::Config {
+                    bucket: OBJECT_BUCKET_DUR.to_string(),
+                    ..Default::default()
+                })
+                .await
+            {
                 Ok(os) => os,
                 Err(_) => return,
             },
         };
         let mut reader = std::io::Cursor::new(data);
-        let _ = os.put(object_store::ObjectMetadata { name: name.to_string(), ..Default::default() }, &mut reader).await;
+        let _ = os
+            .put(
+                object_store::ObjectMetadata {
+                    name: name.to_string(),
+                    ..Default::default()
+                },
+                &mut reader,
+            )
+            .await;
     }
 
     async fn object_get_persistent(&self, name: &str) -> Option<Vec<u8>> {
@@ -372,7 +543,11 @@ impl Bus for NatsBus {
         Some(buf)
     }
 
-    async fn kv_watch(&self, bucket: &str, keys: &str) -> (mpsc::Receiver<KvEvent>, Box<dyn Fn() + Send + Sync>) {
+    async fn kv_watch(
+        &self,
+        bucket: &str,
+        keys: &str,
+    ) -> (mpsc::Receiver<KvEvent>, Box<dyn Fn() + Send + Sync>) {
         let store = self.kv_store(bucket, 0).await;
         let (tx, rx) = mpsc::channel(64);
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -380,7 +555,10 @@ impl Bus for NatsBus {
             // watch_with_history replays the current value per subject (the initial
             // snapshot), matching the Go SDK; plain `watch` is DeliverPolicy::New
             // and would miss values written before the watch started.
-            let mut watch = store.watch_with_history(keys.to_string()).await.expect("kv watch");
+            let mut watch = store
+                .watch_with_history(keys.to_string())
+                .await
+                .expect("kv watch");
             let stop2 = stop.clone();
             tokio::spawn(async move {
                 while let Some(item) = watch.next().await {
@@ -388,7 +566,8 @@ impl Bus for NatsBus {
                         break;
                     }
                     let Ok(entry) = item else { continue };
-                    let deleted = entry.operation == kv::Operation::Delete || entry.operation == kv::Operation::Purge;
+                    let deleted = entry.operation == kv::Operation::Delete
+                        || entry.operation == kv::Operation::Purge;
                     let ev = KvEvent {
                         key: entry.key.clone(),
                         value: String::from_utf8_lossy(&entry.value).to_string(),
@@ -408,8 +587,13 @@ impl Bus for NatsBus {
     }
 
     async fn kv_create(&self, bucket: &str, key: &str, value: &str, ttl_ms: u64) -> i64 {
-        let Some(store) = self.kv_store(bucket, ttl_ms).await else { return 0 };
-        match store.create(key.to_string(), Bytes::from(value.to_string())).await {
+        let Some(store) = self.kv_store(bucket, ttl_ms).await else {
+            return 0;
+        };
+        match store
+            .create(key.to_string(), Bytes::from(value.to_string()))
+            .await
+        {
             Ok(rev) => rev as i64,
             Err(_) => 0,
         }
@@ -417,12 +601,16 @@ impl Bus for NatsBus {
 
     async fn kv_put(&self, bucket: &str, key: &str, value: &str, ttl_ms: u64) {
         if let Some(store) = self.kv_store(bucket, ttl_ms).await {
-            let _ = store.put(key.to_string(), Bytes::from(value.to_string())).await;
+            let _ = store
+                .put(key.to_string(), Bytes::from(value.to_string()))
+                .await;
         }
     }
 
     async fn kv_get(&self, bucket: &str, key: &str) -> String {
-        let Some(store) = self.kv_store(bucket, 0).await else { return String::new() };
+        let Some(store) = self.kv_store(bucket, 0).await else {
+            return String::new();
+        };
         match store.get(key.to_string()).await {
             Ok(Some(b)) => String::from_utf8_lossy(&b).to_string(),
             _ => String::new(),
@@ -430,8 +618,17 @@ impl Bus for NatsBus {
     }
 
     async fn kv_cas(&self, bucket: &str, key: &str, value: &str, revision: i64) -> i64 {
-        let Some(store) = self.kv_store(bucket, 0).await else { return 0 };
-        match store.update(key.to_string(), Bytes::from(value.to_string()), revision as u64).await {
+        let Some(store) = self.kv_store(bucket, 0).await else {
+            return 0;
+        };
+        match store
+            .update(
+                key.to_string(),
+                Bytes::from(value.to_string()),
+                revision as u64,
+            )
+            .await
+        {
             Ok(rev) => rev as i64,
             Err(_) => 0,
         }
@@ -455,7 +652,11 @@ impl NatsBus {
         }
         let cfg = kv::Config {
             bucket: bucket.to_string(),
-            max_age: if ttl_ms > 0 { Duration::from_millis(ttl_ms) } else { Duration::from_secs(0) },
+            max_age: if ttl_ms > 0 {
+                Duration::from_millis(ttl_ms)
+            } else {
+                Duration::from_secs(0)
+            },
             ..Default::default()
         };
         self.js.create_key_value(cfg).await.ok()
@@ -504,7 +705,9 @@ struct NatsSub {
 impl Subscription for NatsSub {
     async fn next(&self) -> Option<pb::Envelope> {
         let mut sub = self.sub.lock().await;
-        let msg = tokio::time::timeout(Duration::from_secs(2), sub.next()).await.ok()??;
+        let msg = tokio::time::timeout(Duration::from_secs(2), sub.next())
+            .await
+            .ok()??;
         let reply = msg.reply.as_ref().map(|r| r.as_str());
         // decode without identity (bus-level verify happens in the transport).
         let mut env = decode_envelope(&msg.payload).ok()?;
@@ -530,7 +733,14 @@ struct NatsInboxSub {
 #[async_trait]
 impl InboxSubscription for NatsInboxSub {
     async fn next(&self) -> Option<Box<dyn InboxMsg>> {
-        let mut batch = match self.consumer.fetch().max_messages(1).expires(Duration::from_secs(2)).messages().await {
+        let mut batch = match self
+            .consumer
+            .fetch()
+            .max_messages(1)
+            .expires(Duration::from_secs(2))
+            .messages()
+            .await
+        {
             Ok(b) => b,
             Err(_) => return None,
         };
@@ -565,7 +775,12 @@ impl InboxMsg for NatsInboxMsg {
         let _ = self.msg.ack().await;
     }
     async fn nak(&self, delay_ms: u64) {
-        let _ = self.msg.ack_with(async_nats::jetstream::AckKind::Nak(Some(Duration::from_millis(delay_ms)))).await;
+        let _ = self
+            .msg
+            .ack_with(async_nats::jetstream::AckKind::Nak(Some(
+                Duration::from_millis(delay_ms),
+            )))
+            .await;
     }
     async fn term(&self) {
         let subject = dlq_subject_for(&self.msg.subject);
@@ -573,11 +788,20 @@ impl InboxMsg for NatsInboxMsg {
         if let Some(id) = &self.env.id {
             hm.insert("Nats-Msg-Id", id.as_str());
         }
-        let _ = self.js.publish_with_headers(subject, hm, self.msg.payload.clone()).await;
-        let _ = self.msg.ack_with(async_nats::jetstream::AckKind::Term).await;
+        let _ = self
+            .js
+            .publish_with_headers(subject, hm, self.msg.payload.clone())
+            .await;
+        let _ = self
+            .msg
+            .ack_with(async_nats::jetstream::AckKind::Term)
+            .await;
     }
     async fn term_no_dlq(&self) {
-        let _ = self.msg.ack_with(async_nats::jetstream::AckKind::Term).await;
+        let _ = self
+            .msg
+            .ack_with(async_nats::jetstream::AckKind::Term)
+            .await;
     }
 }
 

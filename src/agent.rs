@@ -3,12 +3,14 @@
 //! resolves variables, fires hooks, interrupts, drives the mailbox, and owns
 //! the config authority + session lease.
 
-use crate::bus::{Bus, InboxConsumeOpts, InboxPublishOpts, PublishOpts, RequestOpts, SubscribeOpts};
+use crate::bus::{
+    Bus, InboxConsumeOpts, InboxPublishOpts, PublishOpts, RequestOpts, SubscribeOpts,
+};
 use crate::gen::easybus::v1 as pb;
 use crate::protocol::{
     ch_config, ch_hook_call, ch_hook_event, ch_interrupt, ch_lifecycle, ch_mailbox,
     ch_session_events, ch_tool_call, escape_kv_segment, new_id, session_token, session_var_key,
-    subject_tenant, tenant_kv_key, tenant_object_name, var_key, CONFIG_KV_BUCKET, CH_DISCOVER,
+    subject_tenant, tenant_kv_key, tenant_object_name, var_key, CH_DISCOVER, CONFIG_KV_BUCKET,
     GLOBAL_TENANT, VARS_BUCKET,
 };
 use crate::wire::{code_from_wire, decode_manifest, from_value, lifecycle_kind_enum};
@@ -78,7 +80,8 @@ pub struct Agent {
     // config authority
     declarations: Arc<Mutex<HashMap<String, HashMap<String, Vec<pb::ExtensionConfigItem>>>>>,
     global: Arc<Mutex<HashMap<String, HashMap<String, HashMap<String, ConfigValue>>>>>,
-    sessions: Arc<Mutex<HashMap<String, HashMap<String, HashMap<String, HashMap<String, ConfigValue>>>>>>,
+    sessions:
+        Arc<Mutex<HashMap<String, HashMap<String, HashMap<String, HashMap<String, ConfigValue>>>>>>,
     config_started: AtomicBool,
     default_ack: AtomicBool,
 }
@@ -126,11 +129,18 @@ impl Agent {
         let mut seen = std::collections::HashSet::new();
         let mut out = vec![];
         for r in replies {
-            let payload = from_value(r.payload.as_ref().unwrap_or(&prost_types::Value { kind: None }));
+            let payload = from_value(
+                r.payload
+                    .as_ref()
+                    .unwrap_or(&prost_types::Value { kind: None }),
+            );
             let bytes = serde_json::to_vec(&payload).unwrap_or_default();
             if let Ok(m) = decode_manifest(&bytes) {
                 if !m.id.is_empty() && seen.insert(m.id.clone()) {
-                    self.manifest_cache.lock().unwrap().insert(m.id.clone(), m.clone());
+                    self.manifest_cache
+                        .lock()
+                        .unwrap()
+                        .insert(m.id.clone(), m.clone());
                     out.push(m);
                 }
             }
@@ -160,7 +170,12 @@ impl Agent {
                         me.manifest_cache.lock().unwrap().insert(m.id.clone(), m);
                     }
                 }
-                me.live_presence.lock().unwrap().entry(ext_id).or_default().insert(ev.key);
+                me.live_presence
+                    .lock()
+                    .unwrap()
+                    .entry(ext_id)
+                    .or_default()
+                    .insert(ev.key);
             }
         });
     }
@@ -199,9 +214,18 @@ impl Agent {
             )
             .await
             .ok_or_else(|| format!("tool \"{tool}\": no reply"))?;
-        let tr = from_value(reply.payload.as_ref().unwrap_or(&prost_types::Value { kind: None }));
+        let tr = from_value(
+            reply
+                .payload
+                .as_ref()
+                .unwrap_or(&prost_types::Value { kind: None }),
+        );
         let mut r = ToolResult {
-            content: tr.get("content").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            content: tr
+                .get("content")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
             data: tr.get("data").cloned(),
             metadata: tr.get("metadata").cloned(),
             ..Default::default()
@@ -209,23 +233,50 @@ impl Agent {
         if let Some(e) = tr.get("error").and_then(|x| x.as_object()) {
             // protobuf Value carries numbers as float, so accept f64.
             let code = e.get("code").and_then(|x| x.as_f64()).unwrap_or(0.0) as i64;
-            r.error = Some((code_from_wire(code), e.get("message").and_then(|x| x.as_str()).unwrap_or("").to_string()));
+            r.error = Some((
+                code_from_wire(code),
+                e.get("message")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            ));
         }
         if let Some(o) = tr.get("object").and_then(|x| x.as_object()) {
             r.object = Some((
-                o.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                o.get("content_type").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                o.get("id")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                o.get("content_type")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
             ));
         }
         Ok(r)
     }
 
-    pub async fn resolve_variable(&self, tenant: &str, session_name: &str, provider: &str, name: &str) -> (String, bool) {
-        let cached = self.bus.kv_get(VARS_BUCKET, &session_var_key(tenant, provider, session_name, name)).await;
+    pub async fn resolve_variable(
+        &self,
+        tenant: &str,
+        session_name: &str,
+        provider: &str,
+        name: &str,
+    ) -> (String, bool) {
+        let cached = self
+            .bus
+            .kv_get(
+                VARS_BUCKET,
+                &session_var_key(tenant, provider, session_name, name),
+            )
+            .await;
         if !cached.is_empty() {
             return (cached, true);
         }
-        let cg = self.bus.kv_get(VARS_BUCKET, &var_key(tenant, provider, name)).await;
+        let cg = self
+            .bus
+            .kv_get(VARS_BUCKET, &var_key(tenant, provider, name))
+            .await;
         if !cg.is_empty() {
             return (cg, true);
         }
@@ -245,13 +296,30 @@ impl Agent {
         match reply {
             None => (String::new(), false),
             Some(r) => {
-                let v = from_value(r.payload.as_ref().unwrap_or(&prost_types::Value { kind: None }));
-                (v.get("value").and_then(|x| x.as_str()).unwrap_or("").to_string(), true)
+                let v = from_value(
+                    r.payload
+                        .as_ref()
+                        .unwrap_or(&prost_types::Value { kind: None }),
+                );
+                (
+                    v.get("value")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    true,
+                )
             }
         }
     }
 
-    pub async fn call_hook(&self, tenant: &str, ext_id: &str, hook: &str, session_name: &str, args: Value) -> Option<Value> {
+    pub async fn call_hook(
+        &self,
+        tenant: &str,
+        ext_id: &str,
+        hook: &str,
+        session_name: &str,
+        args: Value,
+    ) -> Option<Value> {
         let reply = self
             .bus
             .request(
@@ -265,7 +333,12 @@ impl Agent {
                 },
             )
             .await?;
-        Some(from_value(reply.payload.as_ref().unwrap_or(&prost_types::Value { kind: None })))
+        Some(from_value(
+            reply
+                .payload
+                .as_ref()
+                .unwrap_or(&prost_types::Value { kind: None }),
+        ))
     }
 
     pub async fn interrupt(&self, tenant: &str, ext_id: &str) {
@@ -281,7 +354,13 @@ impl Agent {
             .await;
     }
 
-    pub async fn interrupt_session(&self, tenant: &str, ext_id: &str, session_name: &str, reason: &str) {
+    pub async fn interrupt_session(
+        &self,
+        tenant: &str,
+        ext_id: &str,
+        session_name: &str,
+        reason: &str,
+    ) {
         let mut body = json!({"session_name": session_name});
         if !reason.is_empty() {
             body["reason"] = json!(reason);
@@ -298,7 +377,13 @@ impl Agent {
             .await;
     }
 
-    pub async fn publish_lifecycle_event(&self, tenant: &str, kind: &str, session_name: &str, payload: Option<Value>) {
+    pub async fn publish_lifecycle_event(
+        &self,
+        tenant: &str,
+        kind: &str,
+        session_name: &str,
+        payload: Option<Value>,
+    ) {
         let mut body = json!({"kind": lifecycle_kind_enum(kind), "session_name": session_name});
         if let Some(p) = payload {
             body["payload"] = p;
@@ -315,7 +400,13 @@ impl Agent {
             .await;
     }
 
-    pub async fn publish_event_hook(&self, tenant: &str, hook: &str, session_name: &str, payload: Value) {
+    pub async fn publish_event_hook(
+        &self,
+        tenant: &str,
+        hook: &str,
+        session_name: &str,
+        payload: Value,
+    ) {
         self.bus
             .publish(
                 &ch_hook_event(tenant, hook),
@@ -328,7 +419,13 @@ impl Agent {
             .await;
     }
 
-    pub async fn publish_mailbox(&self, tenant: &str, session_name: &str, typ: &str, payload: Value) {
+    pub async fn publish_mailbox(
+        &self,
+        tenant: &str,
+        session_name: &str,
+        typ: &str,
+        payload: Value,
+    ) {
         let id = new_id();
         self.bus
             .inbox_publish(
@@ -343,7 +440,13 @@ impl Agent {
             .await;
     }
 
-    pub async fn publish_session_event(&self, tenant: &str, session_name: &str, event: &str, params: Value) {
+    pub async fn publish_session_event(
+        &self,
+        tenant: &str,
+        session_name: &str,
+        event: &str,
+        params: Value,
+    ) {
         let id = new_id();
         self.bus
             .inbox_publish(
@@ -359,7 +462,9 @@ impl Agent {
     }
 
     pub async fn put_object(&self, tenant: &str, name: &str, data: Vec<u8>) {
-        self.bus.object_put(&tenant_object_name(tenant, name), data).await;
+        self.bus
+            .object_put(&tenant_object_name(tenant, name), data)
+            .await;
     }
     pub async fn get_object(&self, tenant: &str, name: &str) -> Option<Vec<u8>> {
         self.bus.object_get(&tenant_object_name(tenant, name)).await
@@ -383,14 +488,23 @@ impl Agent {
         ack: Option<bool>,
     ) -> Result<(), ConfigError> {
         if !self.config_started.load(Ordering::SeqCst) {
-            return Err(ConfigError::new("invalid_argument", "ServeConfig() was not called"));
+            return Err(ConfigError::new(
+                "invalid_argument",
+                "ServeConfig() was not called",
+            ));
         }
         let m = match manifest.or_else(|| self.manifest(ext_id)) {
             Some(m) => m,
-            None => return Err(ConfigError::new("not_found", format!("no manifest for {ext_id}; Discover() first"))),
+            None => {
+                return Err(ConfigError::new(
+                    "not_found",
+                    format!("no manifest for {ext_id}; Discover() first"),
+                ))
+            }
         };
         self.declare(tenant, &m).await;
-        self.set_inner(tenant, ext_id, name, value, session_name, ack).await
+        self.set_inner(tenant, ext_id, name, value, session_name, ack)
+            .await
     }
 
     async fn declare(&self, tenant: &str, m: &pb::ExtensionManifest) {
@@ -406,19 +520,39 @@ impl Agent {
             if raw.is_empty() {
                 continue;
             }
-            let Ok(parsed) = serde_json::from_str::<Value>(&raw) else { continue };
+            let Ok(parsed) = serde_json::from_str::<Value>(&raw) else {
+                continue;
+            };
             let rev = parsed.get("r").and_then(|x| x.as_i64()).unwrap_or(0);
             let val = parsed.get("v").cloned().unwrap_or(parsed.clone());
             let mut g = self.global.lock().unwrap();
-            let by = g.entry(tenant.to_string()).or_default().entry(m.id.clone()).or_default();
+            let by = g
+                .entry(tenant.to_string())
+                .or_default()
+                .entry(m.id.clone())
+                .or_default();
             let cur = by.get(&item.name);
             if cur.is_none() || rev > cur.unwrap().revision {
-                by.insert(item.name.clone(), ConfigValue { revision: rev, value: val });
+                by.insert(
+                    item.name.clone(),
+                    ConfigValue {
+                        revision: rev,
+                        value: val,
+                    },
+                );
             }
         }
     }
 
-    async fn set_inner(&self, tenant: &str, ext_id: &str, name: &str, value: Value, session_name: &str, ack: Option<bool>) -> Result<(), ConfigError> {
+    async fn set_inner(
+        &self,
+        tenant: &str,
+        ext_id: &str,
+        name: &str,
+        value: Value,
+        session_name: &str,
+        ack: Option<bool>,
+    ) -> Result<(), ConfigError> {
         let items = self
             .declarations
             .lock()
@@ -429,11 +563,21 @@ impl Agent {
             .unwrap_or_default();
         let item = items.iter().find(|it| it.name == name).cloned();
         let Some(item) = item else {
-            return Err(ConfigError::new("not_found", format!("config {name} not declared by {ext_id}")));
+            return Err(ConfigError::new(
+                "not_found",
+                format!("config {name} not declared by {ext_id}"),
+            ));
         };
-        let scope = if item.scope.is_empty() { "global".to_string() } else { item.scope.clone() };
+        let scope = if item.scope.is_empty() {
+            "global".to_string()
+        } else {
+            item.scope.clone()
+        };
         if scope == "session" && session_name.is_empty() {
-            return Err(ConfigError::new("invalid_argument", format!("config {name} requires a session name (scope=session)")));
+            return Err(ConfigError::new(
+                "invalid_argument",
+                format!("config {name} requires a session name (scope=session)"),
+            ));
         }
         if let Some(msg) = validate_config_value(&item, &value) {
             return Err(ConfigError::new("invalid_argument", msg));
@@ -442,9 +586,19 @@ impl Agent {
         let revision;
         if scope == "global" {
             let mut g = self.global.lock().unwrap();
-            let by = g.entry(tenant.to_string()).or_default().entry(ext_id.to_string()).or_default();
+            let by = g
+                .entry(tenant.to_string())
+                .or_default()
+                .entry(ext_id.to_string())
+                .or_default();
             revision = by.get(name).map(|c| c.revision).unwrap_or(0) + 1;
-            by.insert(name.to_string(), ConfigValue { revision, value: value.clone() });
+            by.insert(
+                name.to_string(),
+                ConfigValue {
+                    revision,
+                    value: value.clone(),
+                },
+            );
         } else {
             let mut s = self.sessions.lock().unwrap();
             let by = s
@@ -455,11 +609,22 @@ impl Agent {
                 .entry(session_name.to_string())
                 .or_default();
             revision = by.get(name).map(|c| c.revision).unwrap_or(0) + 1;
-            by.insert(name.to_string(), ConfigValue { revision, value: value.clone() });
+            by.insert(
+                name.to_string(),
+                ConfigValue {
+                    revision,
+                    value: value.clone(),
+                },
+            );
         }
         let key = config_kv_key(tenant, ext_id, &scope, session_name, name);
         self.bus
-            .kv_put(CONFIG_KV_BUCKET, &key, &json!({"r": revision, "v": value}).to_string(), 0)
+            .kv_put(
+                CONFIG_KV_BUCKET,
+                &key,
+                &json!({"r": revision, "v": value}).to_string(),
+                0,
+            )
             .await;
         let mut payload = json!({"name": name, "value": value, "revision": revision, "scope": scope, "ack": use_ack, "tenant": tenant});
         if !session_name.is_empty() {
@@ -481,10 +646,22 @@ impl Agent {
         if !use_ack || reply.is_none() {
             return Ok(());
         }
-        let hr = from_value(reply.unwrap().payload.as_ref().unwrap_or(&prost_types::Value { kind: None }));
+        let hr = from_value(
+            reply
+                .unwrap()
+                .payload
+                .as_ref()
+                .unwrap_or(&prost_types::Value { kind: None }),
+        );
         if hr.get("ok").and_then(|x| x.as_bool()) != Some(true) {
             if scope == "global" {
-                if let Some(by) = self.global.lock().unwrap().get_mut(tenant).and_then(|m| m.get_mut(ext_id)) {
+                if let Some(by) = self
+                    .global
+                    .lock()
+                    .unwrap()
+                    .get_mut(tenant)
+                    .and_then(|m| m.get_mut(ext_id))
+                {
                     if by.get(name).map(|c| c.revision) == Some(revision) {
                         by.remove(name);
                     }
@@ -523,46 +700,106 @@ impl Agent {
             .cloned()
             .unwrap_or_default();
         for name in by.keys() {
-            self.bus.kv_delete(CONFIG_KV_BUCKET, &config_kv_key(tenant, ext_id, "session", session_name, name)).await;
+            self.bus
+                .kv_delete(
+                    CONFIG_KV_BUCKET,
+                    &config_kv_key(tenant, ext_id, "session", session_name, name),
+                )
+                .await;
         }
-        if let Some(m) = self.sessions.lock().unwrap().get_mut(tenant).and_then(|x| x.get_mut(ext_id)) {
+        if let Some(m) = self
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(tenant)
+            .and_then(|x| x.get_mut(ext_id))
+        {
             m.remove(session_name);
         }
     }
 
     // ---- session lease -----------------------------------------------------
 
-    pub async fn claim_session(&self, tenant: &str, session_name: &str, ttl_ms: u64) -> Option<i64> {
-        let ttl = if ttl_ms > 0 { ttl_ms } else { LEASE_TTL_DEFAULT_MS };
+    pub async fn claim_session(
+        &self,
+        tenant: &str,
+        session_name: &str,
+        ttl_ms: u64,
+    ) -> Option<i64> {
+        let ttl = if ttl_ms > 0 {
+            ttl_ms
+        } else {
+            LEASE_TTL_DEFAULT_MS
+        };
         let rev = self
             .bus
-            .kv_create(LEASE_BUCKET, &tenant_kv_key(tenant, &session_token(session_name)), "running", ttl)
+            .kv_create(
+                LEASE_BUCKET,
+                &tenant_kv_key(tenant, &session_token(session_name)),
+                "running",
+                ttl,
+            )
             .await;
-        if rev == 0 { None } else { Some(rev) }
+        if rev == 0 {
+            None
+        } else {
+            Some(rev)
+        }
     }
 
-    pub async fn renew_session(&self, tenant: &str, session_name: &str, revision: i64, _ttl_ms: u64) -> Option<i64> {
+    pub async fn renew_session(
+        &self,
+        tenant: &str,
+        session_name: &str,
+        revision: i64,
+        _ttl_ms: u64,
+    ) -> Option<i64> {
         let rev = self
             .bus
-            .kv_cas(LEASE_BUCKET, &tenant_kv_key(tenant, &session_token(session_name)), "running", revision)
+            .kv_cas(
+                LEASE_BUCKET,
+                &tenant_kv_key(tenant, &session_token(session_name)),
+                "running",
+                revision,
+            )
             .await;
-        if rev == 0 { None } else { Some(rev) }
+        if rev == 0 {
+            None
+        } else {
+            Some(rev)
+        }
     }
 
     pub async fn release_session(&self, tenant: &str, session_name: &str) {
-        self.bus.kv_delete(LEASE_BUCKET, &tenant_kv_key(tenant, &session_token(session_name))).await;
+        self.bus
+            .kv_delete(
+                LEASE_BUCKET,
+                &tenant_kv_key(tenant, &session_token(session_name)),
+            )
+            .await;
     }
 
     pub async fn is_session_running(&self, tenant: &str, session_name: &str) -> bool {
         !self
             .bus
-            .kv_get(LEASE_BUCKET, &tenant_kv_key(tenant, &session_token(session_name)))
+            .kv_get(
+                LEASE_BUCKET,
+                &tenant_kv_key(tenant, &session_token(session_name)),
+            )
             .await
             .is_empty()
     }
 
-    pub async fn consume_mailbox(self: &Arc<Self>, handler: Arc<dyn Fn(MailboxMessage) -> BoxFutureMail + Send + Sync>) -> Box<dyn Fn() + Send + Sync> {
-        let sub = self.bus.inbox_consume(InboxConsumeOpts { subject: "easybus.*.mailbox.>".to_string() }).await;
+    pub async fn consume_mailbox(
+        self: &Arc<Self>,
+        handler: Arc<dyn Fn(MailboxMessage) -> BoxFutureMail + Send + Sync>,
+    ) -> Box<dyn Fn() + Send + Sync> {
+        let sub = self
+            .bus
+            .inbox_consume(InboxConsumeOpts {
+                subject: "easybus.*.mailbox.>".to_string(),
+            })
+            .await;
         let stopped = Arc::new(AtomicBool::new(false));
         let stopped2 = stopped.clone();
         let bus = self.bus.clone();
@@ -570,12 +807,32 @@ impl Agent {
             while !stopped2.load(Ordering::Relaxed) {
                 let Some(m) = sub.next().await else { continue };
                 let env = m.envelope();
-                let tenant = if env.tenant.is_empty() { subject_tenant(&env.ch) } else { env.tenant.clone() };
-                let body = from_value(env.payload.as_ref().unwrap_or(&prost_types::Value { kind: None }));
+                let tenant = if env.tenant.is_empty() {
+                    subject_tenant(&env.ch)
+                } else {
+                    env.tenant.clone()
+                };
+                let body = from_value(
+                    env.payload
+                        .as_ref()
+                        .unwrap_or(&prost_types::Value { kind: None }),
+                );
                 let msg = MailboxMessage {
-                    id: body.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                    r#type: body.get("type").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                    source: body.get("source").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                    id: body
+                        .get("id")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    r#type: body
+                        .get("type")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    source: body
+                        .get("source")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                     payload: body.get("payload").cloned().unwrap_or(Value::Null),
                     session_name: env.session_name.clone().unwrap_or_default(),
                     tenant,
@@ -598,9 +855,18 @@ impl Agent {
 
 pub type BoxFutureMail = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
 
-fn config_kv_key(tenant: &str, ext_id: &str, scope: &str, session_name: &str, name: &str) -> String {
+fn config_kv_key(
+    tenant: &str,
+    ext_id: &str,
+    scope: &str,
+    session_name: &str,
+    name: &str,
+) -> String {
     if scope == "session" {
-        return tenant_kv_key(tenant, &format!("{ext_id}.{}.{name}", escape_kv_segment(session_name)));
+        return tenant_kv_key(
+            tenant,
+            &format!("{ext_id}.{}.{name}", escape_kv_segment(session_name)),
+        );
     }
     tenant_kv_key(tenant, &format!("{ext_id}.{name}"))
 }
@@ -608,9 +874,15 @@ fn config_kv_key(tenant: &str, ext_id: &str, scope: &str, session_name: &str, na
 fn validate_config_value(item: &pb::ExtensionConfigItem, value: &Value) -> Option<String> {
     let t = item.r#type.as_str();
     match t {
-        "string" if !value.is_string() => Some(format!("expected string, got {}", type_name(value))),
-        "number" if !value.is_number() => Some(format!("expected number, got {}", type_name(value))),
-        "boolean" if !value.is_boolean() => Some(format!("expected boolean, got {}", type_name(value))),
+        "string" if !value.is_string() => {
+            Some(format!("expected string, got {}", type_name(value)))
+        }
+        "number" if !value.is_number() => {
+            Some(format!("expected number, got {}", type_name(value)))
+        }
+        "boolean" if !value.is_boolean() => {
+            Some(format!("expected boolean, got {}", type_name(value)))
+        }
         "enum" => {
             let Some(s) = value.as_str() else {
                 return Some(format!("expected enum string, got {}", type_name(value)));
@@ -636,8 +908,16 @@ fn type_name(v: &Value) -> &'static str {
 }
 
 /// Subscribe to a progress channel (agent side).
-pub async fn subscribe_progress(bus: &Arc<dyn Bus>, tenant: &str, call_id: &str) -> Box<dyn crate::bus::Subscription> {
-    bus.subscribe(&format!("easybus.{tenant}.tool.progress.{call_id}"), SubscribeOpts::default()).await
+pub async fn subscribe_progress(
+    bus: &Arc<dyn Bus>,
+    tenant: &str,
+    call_id: &str,
+) -> Box<dyn crate::bus::Subscription> {
+    bus.subscribe(
+        &format!("easybus.{tenant}.tool.progress.{call_id}"),
+        SubscribeOpts::default(),
+    )
+    .await
 }
 
 /// Keep the Duration import used.
