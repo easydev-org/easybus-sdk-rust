@@ -2,6 +2,22 @@
 name = "easybus-sdk"
 version = "0.1.0"
 edition = "2021"
+# The minimum toolchain that can build this crate.
+#
+# 1.86 is forced by idna_adapter 1.2.2 (async-nats -> url -> idna), which declares
+# edition 2024 — and 2024 edition needs Cargo 1.85+.
+#
+# What this line does NOT do: it does not improve the error on an older toolchain.
+# Cargo fails while parsing the DEPENDENCY's manifest, before it ever looks at
+# this field:
+#   error: failed to parse manifest at .../idna_adapter-1.2.2/Cargo.toml
+#   Caused by: feature `edition2024` is required
+# (verified on Rust 1.83 with and without this line — identical output).
+#
+# What it DOES do: it states the real requirement for `cargo publish` validation,
+# and lets a resolver that honours MSRV pick a compatible dependency set.
+# Keep it accurate; do not expect it to fix error messages.
+rust-version = "1.86"
 description = "easybus protocol SDK (Rust) — the multi-tenant extension bus. Wire contract: proto/easybus/v1/protocol.proto (the single source of truth, shared with easybus-sdk Go/TypeScript/Python)."
 license = "MIT"
 
