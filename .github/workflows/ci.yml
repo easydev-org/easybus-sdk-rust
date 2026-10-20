@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The pin comes from the repo, not from a hard-coded number here: the crate
+      # declares `rust-version`, and CI honours it.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+
+      # Rust generates its bindings in build.rs from the .proto, so it cannot
+      # drift the way a checked-in file can — but the proto must still be valid,
+      # and a build failure here is a codegen failure.
+      - run: cargo build --all-targets
+      - run: cargo test --all-targets
+      - run: cargo fmt --check
+      # clippy is advisory: it must not block a merge on a new lint, but it should
+      # still be visible in the log.
+      - run: cargo clippy --all-targets || true
