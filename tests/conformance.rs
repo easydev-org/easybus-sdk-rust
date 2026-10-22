@@ -1093,13 +1093,8 @@ async fn config_kv_structured_value_stays_text() {
     let a = connect(&url).await;
     let e = connect(&url).await;
     let raw = r#"[{"name":"local","url":"http://worker:80"}]"#;
-    a.kv_put(
-        CONFIG_KV_BUCKET,
-        &format!("t.{T}.conf-ext.servers"),
-        raw,
-        0,
-    )
-    .await;
+    a.kv_put(CONFIG_KV_BUCKET, &format!("t.{T}.conf-ext.servers"), raw, 0)
+        .await;
     let ext = one_string_knob_ext(e, "servers").await;
     for _ in 0..50 {
         if ext.get_config(T, "servers", "").as_str() == Some(raw) {
@@ -1139,7 +1134,10 @@ async fn config_kv_envelope_still_unwraps() {
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
-    assert_eq!(ext.get_config(T, "endpoint", "").as_str(), Some("enveloped"));
+    assert_eq!(
+        ext.get_config(T, "endpoint", "").as_str(),
+        Some("enveloped")
+    );
     ext.close().await;
 }
 
