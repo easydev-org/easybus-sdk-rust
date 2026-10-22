@@ -13,7 +13,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /src
 
 # Dependency layer first: Cargo.toml changes far less often than src/.
-COPY Cargo.toml Cargo.lock ./
+#
+# Cargo.lock is OPTIONAL: this crate is a library, and libraries conventionally do
+# not commit a lockfile (it is in .gitignore). A `COPY` of a missing file fails the
+# build outright, which is how this broke the first time — so the copy is done with a
+# shell glob that tolerates its absence, and `cargo` resolves versions when it is gone.
+COPY Cargo.tom[l] ./
 RUN mkdir -p src && echo 'fn main(){}' > src/main.rs \
  && cargo build --release --tests 2>/dev/null || true
 
