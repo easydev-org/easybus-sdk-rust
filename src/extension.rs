@@ -1144,9 +1144,9 @@ impl Extension {
         let value: Value = if ev.deleted {
             Value::Null
         } else {
-            match serde_json::from_str::<Value>(&ev.value) {
-                Ok(parsed) => parsed.get("v").cloned().unwrap_or(parsed),
-                Err(_) => return,
+            match decode_config_value(&ev.value) {
+                Some(v) => v,
+                None => return,
             }
         };
         let mut store = self.config_store.lock().unwrap();
@@ -1172,6 +1172,39 @@ impl Extension {
                 m.insert(name, value);
             }
         }
+    }
+}
+
+/// Decode one cfg-KV value.
+///
+/// A knob's value is ultimately a STRING. The JSON shapes we accept are:
+///
+///   * `{"r": <rev>, "v": <value>}` — the envelope older agents wrote;
+///   * a JSON SCALAR (`"quoted"`, `42`, `true`);
+///   * anything else VERBATIM — a bare URL, a token, a plain word.
+///
+/// The bare case used to be rejected: `serde_json::from_str("http://host:80")`
+/// errors, and the old code returned, discarding the entry one key at a time. The
+/// extension then reported every knob unset while the agent and the console both
+/// insisted the value was saved.
+///
+/// A JSON ARRAY or OBJECT is returned as its ORIGINAL TEXT, not parsed. Structured
+/// knobs (a list of sandboxes, a servers map) carry a declaration the extension
+/// parses itself; handing back a parsed array makes a string-typed reader see
+/// nothing.
+fn decode_config_value(raw: &str) -> Option<Value> {
+    match serde_json::from_str::<Value>(raw) {
+        Ok(parsed) => {
+            if let Some(v) = parsed.get("v") {
+                return Some(v.clone());
+            }
+            match parsed {
+                Value::Array(_) | Value::Object(_) => Some(Value::String(raw.to_string())),
+                Value::Null => None,
+                other => Some(other),
+            }
+        }
+        Err(_) => Some(Value::String(raw.to_string())),
     }
 }
 

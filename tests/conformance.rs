@@ -1045,6 +1045,139 @@ async fn config_recovers_from_kv() {
     ext.close().await;
 }
 
+/// A knob's value is ultimately a STRING.
+///
+/// The agent writes it verbatim, and a URL or a token is not JSON — so a decoder
+/// that requires JSON drops the entry, silently, one key at a time. The extension
+/// then reports every knob unset while the agent and the console both insist the
+/// value is saved. This is the RESTART path: the bucket snapshot is the only way a
+/// fresh process learns its configuration.
+#[tokio::test]
+async fn config_kv_bare_value_is_stored() {
+    let url = skip_no_nats!();
+    let T = common::tenant();
+    let a = connect(&url).await;
+    let e = connect(&url).await;
+    a.kv_put(
+        CONFIG_KV_BUCKET,
+        &format!("t.{T}.conf-ext.endpoint"),
+        "http://easyops.example:80",
+        0,
+    )
+    .await;
+    let ext = one_string_knob_ext(e, "endpoint").await;
+    for _ in 0..50 {
+        if ext.get_config(T, "endpoint", "").as_str() == Some("http://easyops.example:80") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        ext.get_config(T, "endpoint", "").as_str(),
+        Some("http://easyops.example:80"),
+        "a bare value is a valid config value; dropping it makes every knob read as unset"
+    );
+    ext.close().await;
+}
+
+/// A structured knob arrives as its ORIGINAL TEXT.
+///
+/// The knob carries a declaration the extension parses itself. Handing back a
+/// parsed array makes a string-typed reader see nothing — and every sandbox/
+/// computer tool requires a structured `sandboxes` knob, so this is the common
+/// case, not an edge.
+#[tokio::test]
+async fn config_kv_structured_value_stays_text() {
+    let url = skip_no_nats!();
+    let T = common::tenant();
+    let a = connect(&url).await;
+    let e = connect(&url).await;
+    let raw = r#"[{"name":"local","url":"http://worker:80"}]"#;
+    a.kv_put(
+        CONFIG_KV_BUCKET,
+        &format!("t.{T}.conf-ext.servers"),
+        raw,
+        0,
+    )
+    .await;
+    let ext = one_string_knob_ext(e, "servers").await;
+    for _ in 0..50 {
+        if ext.get_config(T, "servers", "").as_str() == Some(raw) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        ext.get_config(T, "servers", "").as_str(),
+        Some(raw),
+        "a structured value must stay text; the extension parses it itself"
+    );
+    ext.close().await;
+}
+
+/// The legacy `{"r":<rev>,"v":<value>}` envelope keeps working.
+///
+/// Guards the other direction: accepting bare values must not break an agent that
+/// still writes the envelope.
+#[tokio::test]
+async fn config_kv_envelope_still_unwraps() {
+    let url = skip_no_nats!();
+    let T = common::tenant();
+    let a = connect(&url).await;
+    let e = connect(&url).await;
+    a.kv_put(
+        CONFIG_KV_BUCKET,
+        &format!("t.{T}.conf-ext.endpoint"),
+        r#"{"r":9,"v":"enveloped"}"#,
+        0,
+    )
+    .await;
+    let ext = one_string_knob_ext(e, "endpoint").await;
+    for _ in 0..50 {
+        if ext.get_config(T, "endpoint", "").as_str() == Some("enveloped") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(ext.get_config(T, "endpoint", "").as_str(), Some("enveloped"));
+    ext.close().await;
+}
+
+/// The bucket name is a contract between the agent and every extension.
+///
+/// An agent writing to a differently-named bucket stores every value where nothing
+/// is looking, and each side still looks healthy on its own.
+#[test]
+fn config_kv_bucket_name() {
+    assert_eq!(CONFIG_KV_BUCKET, "cfg");
+}
+
+/// A minimal extension declaring one string knob.
+async fn one_string_knob_ext(e: Arc<NatsBus>, knob: &str) -> Arc<Extension> {
+    let ext = Extension::new(
+        e,
+        Config {
+            id: "conf-ext".into(),
+            version: "1".into(),
+            config: {
+                let mut m = std::collections::HashMap::new();
+                m.insert(
+                    knob.to_string(),
+                    ConfigSpec {
+                        r#type: "string".into(),
+                        default: None,
+                        ..Default::default()
+                    },
+                );
+                m
+            },
+            ..Default::default()
+        },
+    );
+    ext.serve().await;
+    ext
+}
+
 #[tokio::test]
 async fn config_dot_session_key() {
     let url = skip_no_nats!();
