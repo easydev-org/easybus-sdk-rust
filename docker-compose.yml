@@ -1,0 +1,33 @@
+# Conformance against a REAL broker, with the broker version PINNED.
+#
+# Identical in shape to the other three SDKs' compose files. Run:
+#
+#     docker compose up --build --abort-on-container-exit \
+#         --exit-code-from conformance
+
+name: easybus-conformance-rust
+
+services:
+  # Pinned, not `:latest`: four implementations have to agree, and "agrees with
+  # whatever is newest" would change under us without a commit.
+  nats:
+    image: nats:2.15.1-alpine
+    command: ["-js", "-p", "4222", "-m", "8222"]
+    healthcheck:
+      # Accepting connections, not merely started: a container that is "running"
+      # but not yet listening turns a startup race into a flaky test.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8222/healthz"]
+      interval: 1s
+      timeout: 2s
+      retries: 60
+      start_period: 2s
+
+  conformance:
+    build:
+      context: .
+      dockerfile: conformance.Dockerfile
+    depends_on:
+      nats:
+        condition: service_healthy
+    environment:
+      EASYBUS_NATS_URL: nats://nats:4222
