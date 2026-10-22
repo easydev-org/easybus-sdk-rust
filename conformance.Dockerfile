@@ -55,6 +55,15 @@ COPY --from=build /src/conformance-cases /src/conformance-cases
 RUN useradd -m -u 10001 runner && chown -R runner /src
 USER runner
 
-# Serial: the suite starts a broker per test, and running several at once multiplies
-# the process count without testing anything additional.
-ENTRYPOINT ["sh", "-c", "/usr/local/bin/shared_cases.test --test-threads=1 && /usr/local/bin/conformance.test --test-threads=1"]
+# ONLY the shared cases.
+#
+# `conformance.test` is the full suite, and several of its cases assume they own the
+# broker: `event_hook` takes the FIRST event it sees, and `presence_liveness` waits for
+# a manifest to disappear. Against a broker that other tests — or another language's
+# container — are also using, they fail, not because the SDK is wrong but because the
+# assumption no longer holds. Those cases start a broker of their own and belong in the
+# `cargo test` job, which has one to itself.
+#
+# The shared cases are safe here by design: each seeds one key under its own tenant
+# and reads it back, touching nothing else.
+ENTRYPOINT ["/usr/local/bin/shared_cases.test", "--test-threads=1"]
