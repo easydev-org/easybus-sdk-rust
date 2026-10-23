@@ -654,9 +654,8 @@ impl Extension {
                     }
                     .to_string(),
                 });
-                let payload: Value =
-                    serde_json::from_slice(&crate::wire::encode_tool_result(&res))
-                        .unwrap_or(Value::Null);
+                let payload: Value = serde_json::from_slice(&crate::wire::encode_tool_result(&res))
+                    .unwrap_or(Value::Null);
                 self.bus
                     .publish(
                         reply_to,

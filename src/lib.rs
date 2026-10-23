@@ -24,11 +24,11 @@ pub mod gen {
 
 pub mod agent;
 pub mod bus;
+pub mod channel;
 pub mod extension;
 pub mod i18n;
 pub mod identity;
 pub mod manifest;
-pub mod channel;
 pub mod permission;
 pub mod protocol;
 pub mod transport;

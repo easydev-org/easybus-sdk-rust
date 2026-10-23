@@ -62,7 +62,10 @@ pub fn run_channel_subjects(case: &Value, id: &str) {
         } else if let Some(p) = c.get("parse").and_then(|v| v.as_str()) {
             let got = parse_channel_subject(p);
             if c["want"].is_null() {
-                assert!(got.is_none(), "{id} case {i}: {why} — expected None for {p}");
+                assert!(
+                    got.is_none(),
+                    "{id} case {i}: {why} — expected None for {p}"
+                );
             } else {
                 let (t, ch, top) =
                     got.unwrap_or_else(|| panic!("{id} case {i} ({why}): None for {p}"));
@@ -112,7 +115,11 @@ pub fn run_protocol_subjects(case: &Value, id: &str) {
             "subjectTenant" => subject_tenant(&s(a, "subject")),
             other => panic!("{id} case {i}: no mapping for {other}"),
         };
-        assert_eq!(got, c["want"].as_str().unwrap(), "{id} case {i} ({fn_name}): {why}");
+        assert_eq!(
+            got,
+            c["want"].as_str().unwrap(),
+            "{id} case {i} ({fn_name}): {why}"
+        );
     }
 }
 

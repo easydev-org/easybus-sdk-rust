@@ -14,8 +14,8 @@ use serde_json::Value;
 fn shared_matching_table() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("conformance-cases/permission-matching.json");
-    let raw = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let raw =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     let table: Value = serde_json::from_str(&raw).expect("parse shared table");
 
     let cases = table["cases"].as_array().expect("cases array");

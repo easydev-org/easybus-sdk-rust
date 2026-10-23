@@ -95,8 +95,10 @@ mod tests {
         let s = ch_channel("alice", "gitea", "tag.agentdev/mrflow.v1.2.3").unwrap();
         assert_eq!(s, "easybus.alice.channel.gitea.tag.agentdev/mrflow.v1.2.3");
         let (t, c, top) = parse_channel_subject(&s).unwrap();
-        assert_eq!((t.as_str(), c.as_str(), top.as_str()),
-            ("alice", "gitea", "tag.agentdev/mrflow.v1.2.3"));
+        assert_eq!(
+            (t.as_str(), c.as_str(), top.as_str()),
+            ("alice", "gitea", "tag.agentdev/mrflow.v1.2.3")
+        );
     }
 
     #[test]

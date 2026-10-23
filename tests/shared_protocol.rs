@@ -17,8 +17,8 @@ fn table(name: &str) -> Value {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("conformance-cases")
         .join(name);
-    let raw = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let raw =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     serde_json::from_str(&raw).expect("parse table")
 }
 
@@ -52,12 +52,8 @@ fn shared_channel_subjects() {
     for (i, c) in cases.iter().enumerate() {
         let why = c["why"].as_str().unwrap_or_default();
         if let Some(b) = c.get("build") {
-            let got = ch_channel(
-                &s(b, "tenant"),
-                &s(b, "channel"),
-                &s(b, "topic"),
-            )
-            .unwrap_or_else(|e| panic!("case {i} ({why}): {e}"));
+            let got = ch_channel(&s(b, "tenant"), &s(b, "channel"), &s(b, "topic"))
+                .unwrap_or_else(|e| panic!("case {i} ({why}): {e}"));
             assert_eq!(got, c["want"].as_str().unwrap(), "case {i}: {why}");
         } else if let Some(p) = c.get("parse").and_then(|v| v.as_str()) {
             let got = parse_channel_subject(p);
@@ -109,6 +105,10 @@ fn shared_protocol_subjects() {
             "subjectTenant" => subject_tenant(&s(a, "subject")),
             other => panic!("case {i}: no mapping for {other}"),
         };
-        assert_eq!(got, c["want"].as_str().unwrap(), "case {i} ({fn_name}): {why}");
+        assert_eq!(
+            got,
+            c["want"].as_str().unwrap(),
+            "case {i} ({fn_name}): {why}"
+        );
     }
 }

@@ -103,7 +103,9 @@ fn run_permission_matching(case: &Value, id: &str) {
     use easybus_sdk::permission::{matches, GrantParams};
     use std::collections::HashMap;
 
-    let cases = case["cases"].as_array().unwrap_or_else(|| panic!("{id}: no cases"));
+    let cases = case["cases"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{id}: no cases"));
     assert!(!cases.is_empty(), "{id}: empty case list");
     for (i, mc) in cases.iter().enumerate() {
         let to_params = |v: &Value| -> GrantParams {

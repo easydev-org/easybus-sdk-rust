@@ -273,7 +273,9 @@ fn to_field_specs(fields: &[ManifestField]) -> Vec<crate::extension::FieldSpec> 
 ///
 /// A permission's params use the SAME ConfigFieldSchema as a structured config knob, so a client
 /// renders one form implementation for both instead of a second type system.
-pub fn params_to_schema(fields: &[ManifestField]) -> Vec<crate::gen::easybus::v1::ConfigFieldSchema> {
+pub fn params_to_schema(
+    fields: &[ManifestField],
+) -> Vec<crate::gen::easybus::v1::ConfigFieldSchema> {
     fields
         .iter()
         .map(|f| {
