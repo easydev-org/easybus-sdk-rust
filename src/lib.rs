@@ -28,6 +28,8 @@ pub mod extension;
 pub mod i18n;
 pub mod identity;
 pub mod manifest;
+pub mod channel;
+pub mod permission;
 pub mod protocol;
 pub mod transport;
 pub mod wire;

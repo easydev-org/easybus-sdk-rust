@@ -28,6 +28,9 @@ pub struct ManifestTool {
     /// the tool keeps its name; it lets a client group the list.
     #[serde(default)]
     pub namespace: String,
+    /// Permission keys a caller must hold to invoke this tool.
+    #[serde(default)]
+    pub requires: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -225,6 +228,10 @@ pub fn build_config(m: &Manifest, b: Bindings) -> Config {
                         input_schema: t.input_schema.clone().unwrap_or(serde_json::json!({})),
                         required_config: t.required_config.clone(),
                         namespace: t.namespace.clone(),
+                        // The manifest is the single source for what a tool requires: a handler
+                        // cannot quietly attach a requirement the manifest does not document, and
+                        // the manifest entry is what a client reads to know what to ask for.
+                        requires: t.requires.clone(),
                     },
                     h.clone(),
                 ),

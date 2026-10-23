@@ -76,9 +76,46 @@ async fn shared_cases() {
         let kind = case["kind"].as_str().expect("case has no kind").to_string();
         match kind.as_str() {
             "constant" => run_constant(&case, &id),
+            "permission-matching" => run_permission_matching(&case, &id),
             "kv" => run_kv(&case, &id).await,
             other => panic!("{id}: unknown case kind {other}"),
         }
+    }
+}
+
+/// The grant-matching rules, from the shared table.
+///
+/// Pure computation, so no broker: this runs in the unit job, which means a rule that drifts in
+/// this SDK fails immediately rather than at the next integration run.
+///
+/// These rules are the security boundary of every extension, implemented once per language. Two
+/// SDKs that disagree do not fail loudly — they authorise different things for the same grant,
+/// depending on which language the extension happens to be written in.
+fn run_permission_matching(case: &Value, id: &str) {
+    use easybus_sdk::permission::{matches, GrantParams};
+    use std::collections::HashMap;
+
+    let cases = case["cases"].as_array().unwrap_or_else(|| panic!("{id}: no cases"));
+    assert!(!cases.is_empty(), "{id}: empty case list");
+    for (i, mc) in cases.iter().enumerate() {
+        let to_params = |v: &Value| -> GrantParams {
+            let mut out = HashMap::new();
+            if let Some(obj) = v.as_object() {
+                for (k, val) in obj {
+                    let s = match val {
+                        Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    out.insert(k.clone(), s);
+                }
+            }
+            out
+        };
+        let grant = to_params(&mc["grant"]);
+        let target = to_params(&mc["target"]);
+        let want = mc["want"].as_bool().expect("want");
+        let why = mc["why"].as_str().unwrap_or("");
+        assert_eq!(matches(&grant, &target), want, "{id} case {i}: {why}");
     }
 }
 

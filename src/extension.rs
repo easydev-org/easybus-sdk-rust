@@ -91,6 +91,13 @@ pub struct ToolSpec {
     /// Grouping of this tool (pvc, build, storage, ...). Organisational only:
     /// the tool keeps its name; it lets a client group the list.
     pub namespace: String,
+    /// Permission keys a caller must hold to invoke this tool.
+    ///
+    /// Checked twice, on purpose. The dispatcher does a COARSE check — is the key present at
+    /// all — because it cannot know what the params mean. The tool then calls
+    /// [`crate::permission::require`] with the target it resolved from its own arguments, and
+    /// that second check is the real boundary.
+    pub requires: Vec<String>,
 }
 
 #[derive(Clone, Default)]
@@ -445,6 +452,39 @@ impl Extension {
             .await;
     }
 
+    /// Publishes an event to a channel.
+    ///
+    /// The tenant is the one this extension is running for — never a caller-supplied value — so an
+    /// extension cannot publish into another tenant's channels. `channel` and `topic` are
+    /// validated as literal subject segments: a wildcard would turn one publish into a broadcast.
+    ///
+    /// Choose a topic a user can subscribe to meaningfully. `tag.agentdev/mrflow.v1.2.3` lets a
+    /// session follow one repository's tags; a flat `event` pushes the filtering into every
+    /// subscriber's code.
+    pub async fn publish_channel(
+        &self,
+        tenant: &str,
+        channel: &str,
+        topic: &str,
+        payload: Value,
+    ) -> Result<(), String> {
+        let subject = crate::channel::ch_channel(tenant, channel, topic)?;
+        // The wire shape the bus consumer expects: the payload beside an advisory source. The
+        // authoritative channel and tenant come from the SUBJECT, never from here.
+        let body = json!({ "payload": payload, "source": self.cfg.id });
+        self.bus
+            .publish(
+                &subject,
+                body,
+                PublishOpts {
+                    tenant: tenant.to_string(),
+                    ..Default::default()
+                },
+            )
+            .await;
+        Ok(())
+    }
+
     async fn serve_discovery(self: &Arc<Self>) {
         let sub = self
             .bus
@@ -552,9 +592,84 @@ impl Extension {
             ..Default::default()
         };
         let args = call.get("arguments").cloned().unwrap_or(json!({}));
-        match handler
-            .execute(args, &call_id, &session_name, &tenant, cancel)
-            .await
+        // The caller's grants, bound for the duration of this call so a tool can check coverage
+        // itself. A tool that declares no `requires` never looks.
+        let grants = call
+            .get("grants")
+            .and_then(|g| g.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|g| {
+                        // Parsed by hand rather than via serde: the generated prost types do not
+                        // derive Deserialize, and adding that derive to generated code is not
+                        // ours to do.
+                        let key = g.get("key").and_then(|k| k.as_str())?.to_string();
+                        let mut fields = std::collections::BTreeMap::new();
+                        if let Some(obj) = g.get("params").and_then(|p| p.as_object()) {
+                            for (k, v) in obj {
+                                fields.insert(k.clone(), json_to_prost_value(v));
+                            }
+                        }
+                        Some(pb::Grant {
+                            key,
+                            params: Some(prost_types::Struct { fields }),
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        // COARSE check: is the key present at all?
+        //
+        // Deliberately not "does a grant cover this call": that needs the target, which only the
+        // tool can resolve from its arguments. This refuses early, with a clear message, when the
+        // session holds no such permission whatsoever.
+        for key in &spec.requires {
+            if grants.iter().all(|g| g.key != *key) {
+                // Drop the in-flight entry the same way the normal path does, or a cancelled
+                // call would linger and an interrupt would target a call that already ended.
+                if !session_name.is_empty() {
+                    if let Some(m) = self
+                        .inflight
+                        .lock()
+                        .unwrap()
+                        .get_mut(&format!("{tenant}\x00{session_name}"))
+                    {
+                        m.remove(&call_id);
+                    }
+                }
+                res.error = Some(pb::ToolError {
+                    code: pb::Code::PermissionDenied as i32,
+                    message: crate::permission::PermissionDenied {
+                        key: key.clone(),
+                        target: Default::default(),
+                        granted: Vec::new(),
+                    }
+                    .to_string(),
+                });
+                let payload: Value =
+                    serde_json::from_slice(&crate::wire::encode_tool_result(&res))
+                        .unwrap_or(Value::Null);
+                self.bus
+                    .publish(
+                        reply_to,
+                        payload,
+                        PublishOpts {
+                            tenant: tenant.clone(),
+                            ..Default::default()
+                        },
+                    )
+                    .await;
+                return;
+            }
+        }
+
+        match crate::permission::with_grants(grants, async {
+            handler
+                .execute(args, &call_id, &session_name, &tenant, cancel)
+                .await
+        })
+        .await
         {
             Ok(data) => {
                 if data.content.len() > MAX_TOOL_CONTENT_BYTES {
@@ -1385,4 +1500,21 @@ fn to_field_schema(f: &crate::extension::FieldSpec) -> pb::ConfigFieldSchema {
         descriptions: f.descriptions.clone(),
         fields: f.fields.iter().map(to_field_schema).collect(),
     }
+}
+
+/// Converts a JSON value from a tool call's arguments into the prost Value type.
+///
+/// Needed because grants arrive inside `ToolCallEnvelope.arguments` (a Struct decoded to JSON),
+/// while the permission module wants the generated prost type. Only the scalar shapes a param can
+/// declare are covered; anything else becomes a string so it still compares.
+fn json_to_prost_value(v: &Value) -> prost_types::Value {
+    use prost_types::value::Kind;
+    let kind = match v {
+        Value::String(s) => Kind::StringValue(s.clone()),
+        Value::Number(n) => Kind::NumberValue(n.as_f64().unwrap_or(0.0)),
+        Value::Bool(b) => Kind::BoolValue(*b),
+        Value::Null => Kind::NullValue(0),
+        other => Kind::StringValue(other.to_string()),
+    };
+    prost_types::Value { kind: Some(kind) }
 }
