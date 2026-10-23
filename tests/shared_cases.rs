@@ -19,6 +19,11 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
+// The pure-computation kinds live in their own module: same loop, but they need no broker.
+#[path = "pure_kinds.rs"]
+mod pure_kinds;
+use pure_kinds::{run_channel_matching, run_channel_subjects, run_protocol_subjects};
+
 async fn connect(url: &str) -> Arc<NatsBus> {
     NatsBus::connect(url, Options::default()).await.unwrap()
 }
@@ -77,6 +82,9 @@ async fn shared_cases() {
         match kind.as_str() {
             "constant" => run_constant(&case, &id),
             "permission-matching" => run_permission_matching(&case, &id),
+            "channel-matching" => run_channel_matching(&case, &id),
+            "channel-subjects" => run_channel_subjects(&case, &id),
+            "protocol-subjects" => run_protocol_subjects(&case, &id),
             "kv" => run_kv(&case, &id).await,
             other => panic!("{id}: unknown case kind {other}"),
         }
