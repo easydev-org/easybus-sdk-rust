@@ -161,6 +161,13 @@ pub struct Config {
     pub config: HashMap<String, ConfigSpec>,
     /// Declared groupings (pvc, build, storage, ...), in the author's ORDER.
     pub namespaces: Vec<NamespaceSpec>,
+    /// Permissions this extension can require.
+    ///
+    /// Declared here so the manifest carries them to the agent and to a client: a permission
+    /// nobody can see is one nobody can grant.
+    pub permissions: Vec<crate::manifest::ManifestPermission>,
+    /// Channels this extension publishes to, so a user can discover the topic format.
+    pub channels: Vec<crate::manifest::ManifestChannel>,
     pub call_hooks: Vec<String>,
     pub event_hooks: Vec<String>,
     pub lifecycle: Vec<String>,
@@ -1344,6 +1351,9 @@ fn build_manifest(cfg: &Config) -> pb::ExtensionManifest {
             } else {
                 Some(spec.namespace.clone())
             },
+            // A tool's requirements must reach the manifest, or the agent cannot refuse an
+            // unauthorised call early and a client cannot know what to ask the user for.
+            requires: spec.requires.clone(),
             ..Default::default()
         });
     }
@@ -1397,7 +1407,7 @@ fn build_manifest(cfg: &Config) -> pb::ExtensionManifest {
         }
         // The SHAPE of a structured knob: without it a client can only render one
         // JSON textarea, and the stored key loses its namespace.
-        item.fields = spec.fields.iter().map(to_field_schema).collect();
+        item.fields = spec.fields.iter().map(field_spec_to_schema).collect();
         if !spec.item_type.is_empty() {
             item.item_type = Some(spec.item_type.clone());
         }
@@ -1433,6 +1443,50 @@ fn build_manifest(cfg: &Config) -> pb::ExtensionManifest {
         hs.call = cfg.call_hooks.clone();
         hs.event = cfg.event_hooks.clone();
         m.hooks = Some(hs);
+    }
+    // Permissions and channels, if the extension declares any.
+    //
+    // These were missing, which is how a manifest could declare `permissions:` and have the agent
+    // receive nothing: the YAML parsed, the data had nowhere to go, and every tool ran ungated
+    // while the file said otherwise. `capabilities` is what a client keys on to know whether to
+    // look for them at all.
+    if !cfg.permissions.is_empty() {
+        m.permissions = cfg
+            .permissions
+            .iter()
+            .map(|p| pb::PermissionDecl {
+                key: p.key.clone(),
+                label: p.label.clone(),
+                descriptions: p.descriptions.clone(),
+                risk: p.risk.clone(),
+                // ManifestField is the YAML shape; FieldSpec is the runtime shape. Convert first,
+                // the same way config knobs do — the point of reusing the schema is that a client
+                // renders one form implementation for both.
+                params_fields: crate::manifest::params_to_schema(&p.params),
+            })
+            .collect();
+        caps.push("permissions".to_string());
+    }
+    if !cfg.channels.is_empty() {
+        m.channels = cfg
+            .channels
+            .iter()
+            .map(|c| pb::ExtensionChannel {
+                name: c.name.clone(),
+                description: c.description.clone(),
+                descriptions: c.descriptions.clone(),
+                topics: c
+                    .topics
+                    .iter()
+                    .map(|t| pb::ChannelTopic {
+                        pattern: t.pattern.clone(),
+                        description: t.description.clone(),
+                        descriptions: t.descriptions.clone(),
+                    })
+                    .collect(),
+            })
+            .collect();
+        caps.push("channels".to_string());
     }
     m.capabilities = caps;
     m
@@ -1475,7 +1529,7 @@ pub fn obj(m: Map<String, Value>) -> Value {
 ///
 /// `fields` nests because a field may itself be an object; both this client and
 /// the validator stop at that depth on purpose.
-fn to_field_schema(f: &crate::extension::FieldSpec) -> pb::ConfigFieldSchema {
+pub fn field_spec_to_schema(f: &crate::extension::FieldSpec) -> pb::ConfigFieldSchema {
     pb::ConfigFieldSchema {
         name: f.name.clone(),
         r#type: f.r#type.clone(),
@@ -1498,7 +1552,7 @@ fn to_field_schema(f: &crate::extension::FieldSpec) -> pb::ConfigFieldSchema {
             Some(f.description.clone())
         },
         descriptions: f.descriptions.clone(),
-        fields: f.fields.iter().map(to_field_schema).collect(),
+        fields: f.fields.iter().map(field_spec_to_schema).collect(),
     }
 }
 

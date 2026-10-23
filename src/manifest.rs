@@ -33,6 +33,52 @@ pub struct ManifestTool {
     pub requires: Vec<String>,
 }
 
+/// One permission an extension can require.
+///
+/// A permission is a (key, params) pair, NOT a bare name: "merge in agentdev/mrflow" is a
+/// different authorisation from "merge in other/repo", so a session may hold several grants of the
+/// same key with different params.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ManifestPermission {
+    pub key: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub descriptions: HashMap<String, String>,
+    /// read | write | destructive. Presentation only — it does not affect enforcement.
+    #[serde(default)]
+    pub risk: String,
+    /// The params a grant carries, using the same field schema as a structured config knob.
+    #[serde(default)]
+    pub params: Vec<ManifestField>,
+}
+
+/// One topic pattern a channel uses.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ManifestChannelTopic {
+    #[serde(default)]
+    pub pattern: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub descriptions: HashMap<String, String>,
+}
+
+/// One channel an extension publishes to.
+///
+/// A channel is a pub/sub topic, not a command queue: knowing the topic FORMAT is what lets a user
+/// write a subscription pattern (`tag.agentdev/mrflow.>`) instead of following everything.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ManifestChannel {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub descriptions: HashMap<String, String>,
+    #[serde(default)]
+    pub topics: Vec<ManifestChannelTopic>,
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ManifestVariable {
     pub name: String,
@@ -146,6 +192,16 @@ pub struct Manifest {
     /// Declared groupings (pvc, build, storage, ...), in the author's ORDER.
     #[serde(default)]
     pub namespaces: Vec<ManifestNamespace>,
+    /// Permissions this extension can require.
+    ///
+    /// Missing this field is how a manifest could declare `permissions:` and have them silently
+    /// dropped: serde ignores unknown keys by default, so the YAML parsed, the data had nowhere to
+    /// go, and every tool ran ungated while the file said otherwise.
+    #[serde(default)]
+    pub permissions: Vec<ManifestPermission>,
+    /// Channels this extension publishes to, so a user can discover the topic format.
+    #[serde(default)]
+    pub channels: Vec<ManifestChannel>,
 }
 
 /// parse_manifest parses YAML manifest text and validates its config knobs.
@@ -209,6 +265,31 @@ fn to_field_specs(fields: &[ManifestField]) -> Vec<crate::extension::FieldSpec> 
             description: f.description.clone(),
             descriptions: f.descriptions.clone(),
             fields: to_field_specs(&f.fields),
+        })
+        .collect()
+}
+
+/// Maps declared param fields onto the wire schema.
+///
+/// A permission's params use the SAME ConfigFieldSchema as a structured config knob, so a client
+/// renders one form implementation for both instead of a second type system.
+pub fn params_to_schema(fields: &[ManifestField]) -> Vec<crate::gen::easybus::v1::ConfigFieldSchema> {
+    fields
+        .iter()
+        .map(|f| {
+            let spec = crate::extension::FieldSpec {
+                name: f.name.clone(),
+                r#type: f.r#type.clone(),
+                kind: f.kind.clone(),
+                format: f.format.clone(),
+                enum_values: f.enum_values.clone(),
+                default: f.default.clone(),
+                required: f.required,
+                description: f.description.clone(),
+                descriptions: f.descriptions.clone(),
+                fields: to_field_specs(&f.fields),
+            };
+            crate::extension::field_spec_to_schema(&spec)
         })
         .collect()
 }
