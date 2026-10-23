@@ -10,7 +10,14 @@
 pub mod gen {
     pub mod easybus {
         pub mod v1 {
-            include!(concat!(env!("OUT_DIR"), "/easybus/easybus.v1.rs"));
+            // COMMITTED, not generated at build time.
+            //
+            // prost's default writes into OUT_DIR, which nothing can review: a contract change
+            // that altered a message produced no diff, so a stale binding was indistinguishable
+            // from a fresh one — and a field this build did not know about was silently absent
+            // on the wire. Committing the output puts it in `git diff`, in review, and within
+            // reach of the CI bot that regenerates it.
+            include!("gen/easybus.v1.rs");
         }
     }
 }

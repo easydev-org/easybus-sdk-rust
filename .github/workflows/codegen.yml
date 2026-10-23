@@ -1,0 +1,86 @@
+name: codegen
+
+# Regenerates `src/gen/easybus.v1.rs` when the contract changes, and opens a pull request
+# with the result.
+#
+# WHY A BOT. The generated file is committed (it did not used to be — it lived in OUT_DIR,
+# where a contract change produced no diff at all and a stale binding was indistinguishable
+# from a fresh one). Now that it is committed, nothing at build time forces it to match the
+# proto, so a bot is what keeps the two honest.
+#
+# WHY A PULL REQUEST rather than pushing to main: the generated diff is mechanical, but a
+# CONTRACT change is exactly what a human should look at.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'proto/easybus/v1/protocol.proto'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: codegen-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # EASYBUS_GENERATE switches build.rs into its write mode. That mode exists because the
+      # generator lives in the same crate as the code it produces: to write the file, the
+      # crate has to build, and it cannot build without the file. Normal `cargo build` never
+      # sets this, so a build can never silently rewrite a committed artifact.
+      - name: Regenerate
+        env:
+          EASYBUS_GENERATE: '1'
+        run: cargo build
+
+      # Compiling in the normal mode is the real check: it proves the committed file is
+      # present and that the contract's messages/types line up with the generated code.
+      - name: Verify it compiles without the generator
+        run: cargo build
+
+      - name: Show what changed
+        run: |
+          if git diff --quiet -- src/gen; then
+            echo "generated code already matches the proto"
+          else
+            git --no-pager diff --stat -- src/gen
+          fi
+
+      - name: Open a pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: codegen/protocol
+          delete-branch: true
+          commit-message: |
+            codegen: regenerate src/gen from protocol.proto
+
+            Produced by .github/workflows/codegen.yml — no hand edits.
+          title: 'codegen: regenerate from protocol.proto'
+          body: |
+            `protocol.proto` changed; this PR carries the regenerated `src/gen/easybus.v1.rs`.
+
+            ### What to review
+            The **proto diff in the commit that triggered this run** — that is the real change.
+            The generated file is a consequence; if it looks wrong, the contract is wrong.
+
+            ### Why this file is committed at all
+            It used to live in `OUT_DIR`, where a contract change produced **no diff
+            whatsoever** — a stale binding looked exactly like a fresh one, and a field this
+            build did not know about was silently absent on the wire. Committing it puts drift
+            in `git diff` and within reach of this bot.
+          labels: |
+            codegen
+            automated

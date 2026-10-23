@@ -43,6 +43,13 @@ futures = "0.3"
 prost-build = "0.13"
 protoc-bin-vendored = "3"
 
+# `buf` regenerates into src/gen and the result is COMMITTED. prost's default writes into
+# OUT_DIR, which is invisible to review, to grep, and to `git diff` — so a contract change
+# that altered a message looked like nothing happened. Committing the output is what the other
+# three SDKs do, and it makes drift something a bot can detect and fix.
+[package.metadata.proto]
+generated = "src/gen"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
 
