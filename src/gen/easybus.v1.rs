@@ -458,6 +458,9 @@ pub struct ExtensionTool {
     pub input_schema: ::core::option::Option<::prost_types::Struct>,
     #[prost(string, repeated, tag = "5")]
     pub required_config: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// bot_probe: verifies the codegen workflow opens a PR
+    #[prost(string, tag = "98")]
+    pub bot_probe: ::prost::alloc::string::String,
     /// namespace groups this tool with others that do the same kind of job
     /// (pvc, build, storage, ...). The tool's NAME is unchanged — callers keep
     /// invoking `ops-create-pvc`; this only lets a client group it in the UI.
