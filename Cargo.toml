@@ -39,9 +39,9 @@ tracing = "0.1"
 async-trait = "0.1"
 futures = "0.3"
 
-[build-dependencies]
-prost-build = "0.13"
-protoc-bin-vendored = "3"
+# No build-dependencies: build.rs only checks that the committed file exists. Generation is
+# `make gen` (buf), so this crate no longer needs prost-build or a vendored protoc to compile
+# — which also removes protoc from the build requirements of every consumer.
 
 # `buf` regenerates into src/gen and the result is COMMITTED. prost's default writes into
 # OUT_DIR, which is invisible to review, to grep, and to `git diff` — so a contract change

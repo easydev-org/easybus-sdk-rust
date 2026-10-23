@@ -36,18 +36,19 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # EASYBUS_GENERATE switches build.rs into its write mode. That mode exists because the
-      # generator lives in the same crate as the code it produces: to write the file, the
-      # crate has to build, and it cannot build without the file. Normal `cargo build` never
-      # sets this, so a build can never silently rewrite a committed artifact.
-      - name: Regenerate
-        env:
-          EASYBUS_GENERATE: '1'
-        run: cargo build
+      # buf, the same driver the Go, TypeScript and Python SDKs use. It replaces prost_build
+      # for two reasons: a `cargo build` must not rewrite a committed artifact, and
+      # prost_build discards the proto's comments — the BSR plugin keeps them as `///` docs.
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Compiling in the normal mode is the real check: it proves the committed file is
-      # present and that the contract's messages/types line up with the generated code.
-      - name: Verify it compiles without the generator
+      - name: Regenerate
+        run: make gen
+
+      # Compiling is the real check: it proves the committed file is present and that the
+      # contract's messages line up with the generated code.
+      - name: Verify it compiles
         run: cargo build
 
       - name: Show what changed

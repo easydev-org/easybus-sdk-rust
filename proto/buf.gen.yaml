@@ -1,4 +1,5 @@
 version: v2
 plugins:
-  - local: protoc-gen-prost
+  - remote: buf.build/community/neoeinstein-prost:v0.4.0
     out: ../src/gen
+    opt: compile_well_known_types=false
