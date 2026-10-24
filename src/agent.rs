@@ -86,6 +86,34 @@ pub struct Agent {
     default_ack: AtomicBool,
 }
 
+/// One resolved dead-letter message.
+#[derive(Debug, Clone)]
+pub struct DlqMessage {
+    pub id: String,
+    pub tenant: String,
+    pub session_name: String,
+    pub typ: String,
+    pub payload: Value,
+}
+
+/// Stops the DLQ consumer when dropped.
+///
+/// A handle rather than a bare tokio::JoinHandle: dropping a JoinHandle detaches the task, so the
+/// loop would keep consuming after the caller thought it had stopped.
+pub struct DlqHandle {
+    stop: Arc<AtomicBool>,
+    task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Drop for DlqHandle {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(t) = self.task.take() {
+            t.abort();
+        }
+    }
+}
+
 impl Agent {
     pub fn new(bus: Arc<dyn Bus>) -> Arc<Self> {
         Arc::new(Agent {
@@ -459,6 +487,77 @@ impl Agent {
                 },
             )
             .await;
+    }
+
+    /// Subscribes to every dead-letter message and hands each to `handler`.
+    ///
+    /// Dead letters are messages a consumer gave up on after repeated failures. Without this they
+    /// accumulate in the DLQ stream and nobody finds out — the failure is real but silent, which
+    /// is the worst combination.
+    ///
+    /// `handler` returns `true` to ack the message, `false` to leave it in the DLQ (nacked,
+    /// retried later). A message that cannot be resolved to a tenant or session is TERMINATED
+    /// rather than dead-lettered again: dead letters of dead letters help nobody.
+    ///
+    /// Returns a stop handle; dropping it ends the loop.
+    pub async fn consume_dlq<F>(&self, mut handler: F) -> Result<DlqHandle, String>
+    where
+        F: FnMut(DlqMessage) -> bool + Send + 'static,
+    {
+        let sub = self
+            .bus
+            .inbox_consume(InboxConsumeOpts {
+                subject: "easybus.*.dlq.>".to_string(),
+            })
+            .await;
+        let stop = Arc::new(AtomicBool::new(false));
+        let flag = stop.clone();
+        let task = tokio::spawn(async move {
+            loop {
+                if flag.load(Ordering::Relaxed) {
+                    return;
+                }
+                let Some(msg) = sub.next().await else { return };
+                let env = msg.envelope().clone();
+                let session_name = env.session_name.clone().unwrap_or_default();
+                let tenant = if env.tenant.is_empty() {
+                    subject_tenant(&env.ch)
+                } else {
+                    env.tenant.clone()
+                };
+                let payload = from_value(
+                    env.payload
+                        .as_ref()
+                        .unwrap_or(&prost_types::Value { kind: None }),
+                );
+                let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                if session_name.is_empty() || tenant.is_empty() || env.id.is_none() || id.is_empty() {
+                    // A dead letter with no address cannot be retried meaningfully.
+                    msg.term_no_dlq().await;
+                    continue;
+                }
+                let resolved = DlqMessage {
+                    id: id.to_string(),
+                    tenant,
+                    session_name,
+                    typ: payload
+                        .get("type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    payload: payload.get("payload").cloned().unwrap_or(Value::Null),
+                };
+                if handler(resolved) {
+                    msg.ack().await;
+                } else {
+                    msg.nak(5000).await;
+                }
+            }
+        });
+        Ok(DlqHandle {
+            stop,
+            task: Some(task),
+        })
     }
 
     pub async fn put_object(&self, tenant: &str, name: &str, data: Vec<u8>) {
