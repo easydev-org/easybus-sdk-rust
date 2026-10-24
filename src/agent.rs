@@ -531,7 +531,8 @@ impl Agent {
                         .unwrap_or(&prost_types::Value { kind: None }),
                 );
                 let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                if session_name.is_empty() || tenant.is_empty() || env.id.is_none() || id.is_empty() {
+                if session_name.is_empty() || tenant.is_empty() || env.id.is_none() || id.is_empty()
+                {
                     // A dead letter with no address cannot be retried meaningfully.
                     msg.term_no_dlq().await;
                     continue;
