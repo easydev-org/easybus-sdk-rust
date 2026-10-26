@@ -232,3 +232,51 @@ fn matches_value(got: &Value, want: &Value, value_type: &str) -> bool {
         _ => false,
     }
 }
+
+/// Pin how a transport error is CATEGORISED.
+///
+/// The shared half of the KV fix. Every SDK used to collapse every failure into a zero value
+/// (`Err(_) => 0`), which made a lost race and a broken connection indistinguishable. The zero
+/// value is CORRECT for a lost race and catastrophic for anything else, so the category is the
+/// contract.
+///
+/// An empty `err` means "no error at all": it must match nothing. A classifier that reported nil
+/// as a fault would send every success path down a fault branch and misread its own result.
+fn run_error_classification(case: &Value, id: &str) {
+    let entries = case["cases"].as_array().expect("cases array");
+    assert!(!entries.is_empty(), "{id}: no cases");
+
+    for (i, mc) in entries.iter().enumerate() {
+        let msg = mc["err"].as_str().unwrap_or("");
+        let why = mc["why"].as_str().unwrap_or("");
+        let err: Option<&str> = if msg.is_empty() { None } else { Some(msg) };
+
+        assert_eq!(
+            easybus_sdk::protocol::is_lost_race(err),
+            mc["lostRace"].as_bool().unwrap_or(false),
+            "{id} case {i} is_lost_race({msg:?}): {why}"
+        );
+        assert_eq!(
+            easybus_sdk::protocol::is_absent_key(err),
+            mc["absent"].as_bool().unwrap_or(false),
+            "{id} case {i} is_absent_key({msg:?}): {why}"
+        );
+        assert_eq!(
+            easybus_sdk::protocol::is_consumer_gone(err),
+            mc["consumerGone"].as_bool().unwrap_or(false),
+            "{id} case {i} is_consumer_gone({msg:?}): {why}"
+        );
+
+        // The categories must be mutually exclusive: a fault belonging to two would make
+        // behaviour depend on clause order rather than on the fault.
+        let hits = [
+            easybus_sdk::protocol::is_lost_race(err),
+            easybus_sdk::protocol::is_absent_key(err),
+            easybus_sdk::protocol::is_consumer_gone(err),
+        ]
+        .iter()
+        .filter(|b| **b)
+        .count();
+        assert!(hits <= 1, "{id} case {i} ({msg:?}): matches {hits} categories");
+    }
+}
