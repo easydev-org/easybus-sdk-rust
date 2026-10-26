@@ -7,7 +7,7 @@
 //!
 //! No broker: this is pure text matching, so it runs everywhere.
 
-use easybus::protocol::{is_absent_key, is_consumer_gone, is_lost_race};
+use easybus_sdk::protocol::{is_absent_key, is_consumer_gone, is_lost_race};
 use serde_json::Value;
 
 fn cases_path() -> std::path::PathBuf {
