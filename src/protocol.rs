@@ -338,7 +338,9 @@ pub fn is_absent_key(err: Option<&str>) -> bool {
 pub fn is_consumer_gone(err: Option<&str>) -> bool {
     err.is_some_and(|m| {
         let m = m.to_lowercase();
-        m.contains("consumer not found") || m.contains("consumer deleted") || m.contains("no responders")
+        m.contains("consumer not found")
+            || m.contains("consumer deleted")
+            || m.contains("no responders")
     })
 }
 

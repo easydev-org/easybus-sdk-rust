@@ -588,10 +588,10 @@ impl Bus for NatsBus {
 
     async fn kv_create(&self, bucket: &str, key: &str, value: &str, ttl_ms: u64) -> i64 {
         let Some(store) = self.kv_store(bucket, ttl_ms).await else {
-            // The bucket could not be opened at all. That is a real failure, not "somebody else
-            // holds the key", and the caller reads 0 as the latter — so the distinction has to go
-            // somewhere. This trait returns a bare revision, so the failure is logged rather than
-            // swallowed silently: an operator can see it, and the boot backstop re-runs the work.
+            // The bucket could not be opened at all: a real failure, not "somebody else holds
+            // the key". The caller reads 0 as the latter, so the distinction has to go somewhere.
+            // This trait returns a bare revision, so it is logged instead of swallowed: an
+            // operator can see it, and the boot backstop re-runs the work.
             tracing::warn!(bucket, key, "kv_create: bucket unavailable; reporting no claim");
             return 0;
         };

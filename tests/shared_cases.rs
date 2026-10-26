@@ -269,14 +269,12 @@ fn run_error_classification(case: &Value, id: &str) {
 
         // The categories must be mutually exclusive: a fault belonging to two would make
         // behaviour depend on clause order rather than on the fault.
-        let hits = [
+        let matches = [
             easybus_sdk::protocol::is_lost_race(err),
             easybus_sdk::protocol::is_absent_key(err),
             easybus_sdk::protocol::is_consumer_gone(err),
-        ]
-        .iter()
-        .filter(|b| **b)
-        .count();
+        ];
+        let hits = matches.iter().filter(|b| **b).count();
         assert!(hits <= 1, "{id} case {i} ({msg:?}): matches {hits} categories");
     }
 }
