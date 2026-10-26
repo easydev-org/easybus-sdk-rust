@@ -86,6 +86,12 @@ async fn shared_cases() {
             "channel-subjects" => run_channel_subjects(&case, &id),
             "protocol-subjects" => run_protocol_subjects(&case, &id),
             "kv" => run_kv(&case, &id).await,
+            "error-classification" => run_error_classification(&case, &id),
+            // Not a case: the INPUTS to the broker suite (the extension it builds, the calls it
+            // makes). They live in the shared directory so every SDK reads the same bytes, and
+            // are consumed by the broker runner — running them through this loop made them
+            // demand a broker they never needed.
+            "broker-fixture" | "broker-cases" => {}
             other => panic!("{id}: unknown case kind {other}"),
         }
     }

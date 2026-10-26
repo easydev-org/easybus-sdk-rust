@@ -288,6 +288,60 @@ pub mod golden {
     }
 }
 
+// ---- error classification -------------------------------------------------
+//
+// Classifying a transport error is a PROTOCOL concern, not a transport detail.
+//
+// Four SDKs talk to the same broker, and each has to answer the same question when a KV call
+// fails: is this an expected outcome (a lost race, an absent key) or a real failure? Getting it
+// wrong is silent in both directions:
+//
+//   - a lost CAS reported as a failure -> the lease is renewed against a revision it no longer
+//     owns, or a healthy turn is aborted because a network blip looked like a takeover;
+//   - a network failure reported as "the key is absent" -> an extension starts with no
+//     configuration and reports itself unconfigured, while the config is plainly set.
+//
+// Every SDK had the second shape (`Err(_) => 0`). The classification lives here once, and the
+// shared conformance table pins it for all four implementations.
+
+/// The server's rejection of a CAS that lost a race (10071 "wrong last sequence: N").
+///
+/// Two phrasings exist in the wild, with and without the `stream` prefix; the shared substring
+/// covers both, so a server-version difference cannot silently reclassify a normal outcome.
+pub fn is_lost_race(err: Option<&str>) -> bool {
+    err.is_some_and(|m| m.to_lowercase().contains("wrong last sequence"))
+}
+
+/// A create() that found the key already present: the other losing side of a claim race.
+pub fn is_already_exists(err: Option<&str>) -> bool {
+    err.is_some_and(|m| m.to_lowercase().contains("already exists"))
+}
+
+/// An absent key: deleted, or expired under a short TTL.
+///
+/// "no message found" (10037) is what get() returns once the value expired between being listed
+/// and being read. It is a MISS — treating it as an error makes the caller take its error path
+/// when the correct behaviour is the default one.
+pub fn is_absent_key(err: Option<&str>) -> bool {
+    err.is_some_and(|m| {
+        let m = m.to_lowercase();
+        m.contains("no message found") || m.contains("key not found")
+    })
+}
+
+/// A JetStream consumer that no longer exists.
+///
+/// A durable consumer can be deleted underneath a long-lived subscription: operator cleanup, a
+/// stream reset, or the server reclaiming it. A pull Fetch then fails IMMEDIATELY with "no
+/// responders", which one deployment read as "nothing to read" — 2,814,600 empty pulls, no
+/// delivery, no log. The fix is to rebuild, not to keep asking.
+pub fn is_consumer_gone(err: Option<&str>) -> bool {
+    err.is_some_and(|m| {
+        let m = m.to_lowercase();
+        m.contains("consumer not found") || m.contains("consumer deleted") || m.contains("no responders")
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
