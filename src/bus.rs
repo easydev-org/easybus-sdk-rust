@@ -99,8 +99,15 @@ pub trait Bus: Send + Sync {
 
     async fn object_put(&self, name: &str, data: Vec<u8>);
     async fn object_get(&self, name: &str) -> Option<Vec<u8>>;
-    async fn object_put_persistent(&self, name: &str, data: Vec<u8>);
-    async fn object_get_persistent(&self, name: &str) -> Option<Vec<u8>>;
+    /// Store PERSISTENT file bytes.
+    ///
+    /// Persistent bytes have exactly ONE backend and it is not NATS: an S3-compatible store. A
+    /// fallback to the broker's object store would be a silent change of meaning — the bytes would
+    /// still be stored, in a place the operator did not choose, under different retention rules.
+    /// Without a durable backend this FAILS.
+    async fn object_put_persistent(&self, name: &str, data: Vec<u8>) -> Result<(), String>;
+    /// Read PERSISTENT file bytes. Fails without a durable backend, for the same reason.
+    async fn object_get_persistent(&self, name: &str) -> Result<Option<Vec<u8>>, String>;
 
     async fn kv_watch(
         &self,

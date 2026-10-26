@@ -33,12 +33,34 @@ pub const CHANGED_WILDCARD: &str = "easybus.*.session.changed";
 pub const DLQ_WILDCARD: &str = "easybus.*.dlq.>";
 pub const DURABLE_CONSUMER: &str = "easybus-mailbox-push";
 pub const OBJECT_BUCKET: &str = "EASYBUS_TOOL";
-pub const OBJECT_BUCKET_DUR: &str = "EASYBUS_FILES";
+// There is deliberately NO durable object bucket: persistent bytes live in an S3-compatible
+// backend and nowhere else. A NATS bucket for them made "a persistent file" mean S3 in one
+// deployment and a broker stream in another, with identical code.
+
+/// Returned when persistent bytes are requested without a durable backend configured.
+///
+/// A fallback to the broker would still store the bytes, so nothing would error — and only the
+/// config would say where they went.
+pub const NO_DURABLE_OBJECT_STORE: &str =
+    "no durable object store configured: persistent files require an S3-compatible backend";
+
+/// The backend that owns PERSISTENT file bytes.
+///
+/// A trait object rather than a concrete S3 type so this crate does not depend on an S3 client,
+/// and so a test can supply its own.
+#[async_trait::async_trait]
+pub trait DurableObjectStore: Send + Sync {
+    async fn put_persistent(&self, name: &str, data: Vec<u8>) -> Result<(), String>;
+    async fn get_persistent(&self, name: &str) -> Result<Option<Vec<u8>>, String>;
+}
 
 #[derive(Clone, Default)]
 pub struct Options {
     pub max_age_ms: u64,
     pub identity: Option<Identity>,
+    /// Owns the PERSISTENT object path. `None` means "not configured", and the persistent methods
+    /// refuse rather than quietly using the broker.
+    pub durable: Option<std::sync::Arc<dyn DurableObjectStore>>,
 }
 
 fn tenant_of(ch: &str, explicit: &str) -> String {
@@ -99,6 +121,7 @@ pub struct NatsBus {
     nc: Client,
     js: Context,
     idn: Option<Identity>,
+    durable: Option<std::sync::Arc<dyn DurableObjectStore>>,
 }
 
 impl NatsBus {
@@ -114,6 +137,7 @@ impl NatsBus {
             nc,
             js,
             idn: opts.identity,
+            durable: opts.durable,
         }))
     }
 
@@ -506,41 +530,22 @@ impl Bus for NatsBus {
         Some(buf)
     }
 
-    async fn object_put_persistent(&self, name: &str, data: Vec<u8>) {
-        let os = match self.js.get_object_store(OBJECT_BUCKET_DUR).await {
-            Ok(os) => os,
-            Err(_) => match self
-                .js
-                .create_object_store(object_store::Config {
-                    bucket: OBJECT_BUCKET_DUR.to_string(),
-                    ..Default::default()
-                })
-                .await
-            {
-                Ok(os) => os,
-                Err(_) => return,
-            },
-        };
-        let mut reader = std::io::Cursor::new(data);
-        let _ = os
-            .put(
-                object_store::ObjectMetadata {
-                    name: name.to_string(),
-                    ..Default::default()
-                },
-                &mut reader,
-            )
-            .await;
+    async fn object_put_persistent(&self, name: &str, data: Vec<u8>) -> Result<(), String> {
+        // NO FALLBACK to the broker. See the trait doc: a fallback would still store the bytes, so
+        // nothing would error, and only the config would say where they went.
+        let durable = self
+            .durable
+            .as_ref()
+            .ok_or_else(|| NO_DURABLE_OBJECT_STORE.to_string())?;
+        durable.put_persistent(name, data).await
     }
 
-    async fn object_get_persistent(&self, name: &str) -> Option<Vec<u8>> {
-        let os = self.js.get_object_store(OBJECT_BUCKET_DUR).await.ok()?;
-        let obj = os.get(name).await.ok()?;
-        let mut buf = vec![];
-        let mut r = obj;
-        use tokio::io::AsyncReadExt;
-        r.read_to_end(&mut buf).await.ok()?;
-        Some(buf)
+    async fn object_get_persistent(&self, name: &str) -> Result<Option<Vec<u8>>, String> {
+        let durable = self
+            .durable
+            .as_ref()
+            .ok_or_else(|| NO_DURABLE_OBJECT_STORE.to_string())?;
+        durable.get_persistent(name).await
     }
 
     async fn kv_watch(
