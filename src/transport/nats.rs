@@ -592,7 +592,11 @@ impl Bus for NatsBus {
             // the key". The caller reads 0 as the latter, so the distinction has to go somewhere.
             // This trait returns a bare revision, so it is logged instead of swallowed: an
             // operator can see it, and the boot backstop re-runs the work.
-            tracing::warn!(bucket, key, "kv_create: bucket unavailable; reporting no claim");
+            tracing::warn!(
+                bucket,
+                key,
+                "kv_create: bucket unavailable; reporting no claim"
+            );
             return 0;
         };
         match store
@@ -605,8 +609,12 @@ impl Bus for NatsBus {
                 // "already exists" is the normal LOSING side of a claim race: 0, no complaint.
                 // Anything else is a real failure and must not look like a lost race.
                 if !crate::protocol::is_already_exists(Some(&msg)) {
-                    tracing::warn!(bucket, key, error = %msg,
-                        "kv_create failed for a reason other than key-exists; reporting no claim");
+                    tracing::warn!(
+                        bucket,
+                        key,
+                        error = %msg,
+                        "kv_create failed for a reason other than key-exists; reporting no claim"
+                    );
                 }
                 0
             }
@@ -633,8 +641,12 @@ impl Bus for NatsBus {
                 // An expired key ("no message found") is a miss. Anything else is a real failure,
                 // and returning "" for it makes a caller take its default branch and never retry.
                 if !crate::protocol::is_absent_key(Some(&msg)) {
-                    tracing::warn!(bucket, key, error = %msg,
-                        "kv_get failed for a reason other than a miss; reporting absent");
+                    tracing::warn!(
+                        bucket,
+                        key,
+                        error = %msg,
+                        "kv_get failed for a reason other than a miss; reporting absent"
+                    );
                 }
                 String::new()
             }
@@ -660,8 +672,12 @@ impl Bus for NatsBus {
                 // failure, and collapsing the two is what let a network blip abort a healthy
                 // in-flight turn — the caller reads 0 as "the lease was LOST".
                 if !crate::protocol::is_lost_race(Some(&msg)) {
-                    tracing::warn!(bucket, key, error = %msg,
-                        "kv_cas failed for a reason other than a lost race; reporting no renewal");
+                    tracing::warn!(
+                        bucket,
+                        key,
+                        error = %msg,
+                        "kv_cas failed for a reason other than a lost race; reporting no renewal"
+                    );
                 }
                 0
             }

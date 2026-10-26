@@ -275,6 +275,9 @@ fn run_error_classification(case: &Value, id: &str) {
             easybus_sdk::protocol::is_consumer_gone(err),
         ];
         let hits = matches.iter().filter(|b| **b).count();
-        assert!(hits <= 1, "{id} case {i} ({msg:?}): matches {hits} categories");
+        assert!(
+            hits <= 1,
+            "{id} case {i} ({msg:?}): matches {hits} categories"
+        );
     }
 }
